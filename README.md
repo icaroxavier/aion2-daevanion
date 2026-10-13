@@ -1,6 +1,9 @@
 # Rota Daevanion
 
-Calculadora de caminho para a Daevanion Board do **Gladiador** no Aion 2.
+Calculadora de caminho para a Daevanion Board do Aion 2, para as 8 classes.
+
+Você escolhe a classe e o papel (DPS; Tank para Gladiador e Templário). O papel
+define os pesos padrão: no DPS, tudo que é defensivo começa em 0.
 
 Você marca o que é obrigatório (um node específico ou um tipo inteiro) e dá um
 peso para cada tipo de node de cada árvore. A página calcula o conjunto de nodes
@@ -18,13 +21,19 @@ O problema é uma árvore de Steiner com peso nos nodes: achar o conjunto conexo
   marcada na tela como aproximada.
 - Com o critério em 0, menos pontos sempre vence e o peso só desempata.
 
+## Link compartilhável
+
+O endereço da página carrega a configuração inteira (`#s=...`): classe, papel,
+critério, pesos alterados, obrigatórios e bloqueios. Abrir o link importa tudo.
+
 ## Arquivos
 
-- `index.html` — a página (sem build, sem dependências).
+- `index.html` + `app.js` — a página (sem build, sem dependências).
 - `solver.js` — o algoritmo, puro; roda no navegador e no Node.
-- `data.js` — as 5 boards (gerado por `tools/build-data.js`).
-- `icons/` — ícones das habilidades (baixados por `tools/fetch-icons.js`).
-- `tools/test-solver.js` — confere o solver exato contra força bruta: `node tools/test-solver.js`.
+- `data/<classe>.js` — as 5 boards de cada classe, carregadas sob demanda.
+- `icons/` — ícones das habilidades.
+- `tools/fetch-data.js` — baixa boards e ícones de todas as classes.
+- `tools/test-solver.js` — confere o solver exato contra força bruta.
 
 ## Dados
 

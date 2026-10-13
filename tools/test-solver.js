@@ -1,7 +1,7 @@
 // Confere a DP exata contra força bruta em boards aleatórias pequenas e roda
 // um caso real pra medir tempo.   node tools/test-solver.js
 const { solve } = require('../solver.js')
-const data = require('../data.js')
+const data = require('../data/gladiator.js')
 
 let seed = 7
 const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff)
