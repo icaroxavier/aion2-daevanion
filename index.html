@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Calcula o caminho mais barato na Daevanion Board do Gladiador (Aion 2) passando pelos nodes obrigatórios.">
+<title>Rota Daevanion</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a board é o centro; resultado ao lado, regras (pesos/obrigatórios) logo abaixo. */
+:root {
+  --bg: #10131c; --panel: #171c29; --cell: #1e2434; --line: #2b3347;
+  --fg: #e8e6df; --muted: #8f97ab;
+  --accent: #5ec8d8; --on-accent: #06242a; --path: #26505f;
+  --common: #7c8499; --rare: #4fbf6b; --legend: #4f8fe6; --unique: #e0a53a;
+  --warn: #e0a53a; --bad: #e06a5a;
+  --display: 'Cinzel', 'Trajan Pro', Georgia, serif;
+  --body: 'IBM Plex Sans', system-ui, 'Segoe UI', sans-serif;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f1f3f7; --panel: #ffffff; --cell: #e8ecf3; --line: #cdd4e0;
+    --fg: #1a2030; --muted: #5a6376;
+    --accent: #0c7d90; --on-accent: #ffffff; --path: #b5e0e8;
+    --common: #8a92a5; --rare: #2f9a4c; --legend: #2f6fcf; --unique: #b87f12;
+    --warn: #a56a00; --bad: #c0392b;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f1f3f7; --panel: #ffffff; --cell: #e8ecf3; --line: #cdd4e0;
+  --fg: #1a2030; --muted: #5a6376;
+  --accent: #0c7d90; --on-accent: #ffffff; --path: #b5e0e8;
+  --common: #8a92a5; --rare: #2f9a4c; --legend: #2f6fcf; --unique: #b87f12;
+  --warn: #a56a00; --bad: #c0392b;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 14px; line-height: 1.45; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+h1 { font-family: var(--display); font-size: 26px; font-weight: 600; letter-spacing: .04em; margin: 0; }
+header p { margin: 0; color: var(--muted); }
+h2 { font-size: 12px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0; }
+button, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tab { background: none; border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+.tab small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tab[aria-selected="true"] { background: var(--panel); border-color: var(--accent); }
+.tab[aria-selected="true"] small { color: var(--accent); }
+
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 16px; align-items: start; }
+@media (max-width: 960px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.boardcol { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { background: none; border: 0; padding: 5px 10px; cursor: pointer; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--cell); color: var(--fg); }
+.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; }
+
+.grid { display: grid; gap: 3px; container-type: inline-size; max-width: 640px; }
+.cell { aspect-ratio: 1; min-width: 0; padding: 0; border: 1.5px solid var(--common); border-radius: 3px; background: var(--cell); color: var(--muted); cursor: pointer; font-size: clamp(6px, 2cqw, 11px); font-weight: 500; line-height: 1; display: grid; place-items: center; overflow: hidden; }
+.cell.skill { border-radius: 50%; }
+.cell.g-Rare { border-color: var(--rare); } .cell.g-Legend { border-color: var(--legend); } .cell.g-Unique { border-color: var(--unique); }
+.cell.weighted { color: var(--fg); font-weight: 600; }
+.cell.path { background: var(--path); color: var(--fg); }
+.cell.req { background: var(--accent); color: var(--on-accent); font-weight: 600; box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent); }
+.cell.start { background: var(--fg); color: var(--bg); border-color: var(--fg); transform: rotate(45deg) scale(.72); cursor: default; }
+.cell.blocked { opacity: .4; background: repeating-linear-gradient(45deg, var(--cell) 0 4px, var(--bad) 4px 5px); }
+.cell img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: .4; }
+.cell.path img, .cell.req img { opacity: 1; }
+.cell.skill.path { box-shadow: 0 0 0 2px var(--accent); }
+td img.ic { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--common); margin-right: 8px; vertical-align: middle; object-fit: cover; }
+.gap { aspect-ratio: 1; }
+.info { min-height: 2.9em; color: var(--muted); }
+.info b { color: var(--fg); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 12px; }
+.legend i { display: inline-block; width: 11px; height: 11px; border: 1.5px solid var(--common); border-radius: 2px; vertical-align: -1px; margin-right: 5px; background: var(--cell); }
+
+.side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.block { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.big { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.big strong { font-size: 34px; font-weight: 600; line-height: 1; }
+.big span { color: var(--muted); }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0; font-variant-numeric: tabular-nums; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; text-align: right; }
+.badge { align-self: flex-start; font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--rare); color: var(--rare); }
+.badge.approx { border-color: var(--warn); color: var(--warn); }
+.badge.err { border-color: var(--bad); color: var(--bad); }
+.gains { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-variant-numeric: tabular-nums; }
+.gains li { display: flex; justify-content: space-between; gap: 12px; }
+.gains li span:last-child { color: var(--accent); white-space: nowrap; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0; max-width: 65ch; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+
+.tablewrap { overflow-x: auto; }
+.scrolly { max-height: 430px; overflow-y: auto; }
+.scrolly thead th { position: sticky; top: 0; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+td.c, th.c { text-align: center; } td.r, th.r { text-align: right; }
+td .sw { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--common); border-radius: 2px; margin-right: 8px; }
+td .sw.skill { border-radius: 50%; }
+td small { color: var(--muted); margin-left: 6px; white-space: nowrap; }
+tr.grp td { color: var(--muted); font-size: 12px; letter-spacing: .09em; text-transform: uppercase; padding-top: 12px; }
+input.num { width: 70px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; text-align: right; }
+textarea { width: 100%; min-height: 180px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.btn { background: var(--cell); border: 1px solid var(--line); border-radius: 4px; padding: 5px 12px; cursor: pointer; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+details summary { cursor: pointer; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Rota Daevanion</h1>
+    <p>Gladiador · marque o que é obrigatório e veja o caminho mais barato a partir do início.</p>
+  </header>
+
+  <div class="tabs" id="tabs" role="tablist"></div>
+
+  <div class="main">
+    <div class="boardcol">
+      <div class="toolbar">
+        <span class="seg" role="group" aria-label="O que o clique faz">
+          <button type="button" id="mode-req" aria-pressed="true">Clique marca obrigatório</button>
+          <button type="button" id="mode-block" aria-pressed="false">Clique bloqueia</button>
+        </span>
+        <button type="button" class="link" id="clear">Limpar esta árvore</button>
+        <button type="button" class="link" id="goto-types">Pesos e obrigatórios por tipo</button>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="info" id="info">Passe o mouse ou toque num node para ver o que ele dá.</div>
+      <div class="legend">
+        <span><i style="background:var(--accent);border-color:var(--accent)"></i>obrigatório</span>
+        <span><i style="background:var(--path)"></i>no caminho</span>
+        <span><i style="border-color:var(--rare)"></i>raro (2)</span>
+        <span><i style="border-color:var(--legend)"></i>lendário (3)</span>
+        <span><i style="border-color:var(--unique)"></i>único (4)</span>
+        <span><i style="border-radius:50%"></i>habilidade</span>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="block">
+        <h2 id="res-title">Resultado</h2>
+        <div class="big"><strong id="res-points">0</strong><span id="res-of">pontos</span></div>
+        <span class="badge" id="res-badge">ótimo</span>
+        <dl class="kv">
+          <dt>Nodes no caminho</dt><dd id="res-nodes">0</dd>
+          <dt>Peso somado</dt><dd id="res-weight">0</dd>
+          <dt>Todas as árvores</dt><dd id="res-total">0 pts</dd>
+        </dl>
+      </div>
+      <div class="block" id="tipos">
+        <h2 id="types-title">Tipos de node</h2>
+        <p class="hint">O peso diz o quanto você quer aquele tipo no caminho (0 = indiferente). “Obrigatório” força pegar todos os nodes daquele tipo nesta árvore. Para obrigar só um node específico, clique nele na board.</p>
+        <div class="tablewrap scrolly">
+          <table>
+            <thead><tr><th class="c">Obrigatório</th><th>Tipo</th><th class="r">Peso</th><th class="r">Pegos</th></tr></thead>
+            <tbody id="types"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="block">
+        <h2>O que este caminho dá</h2>
+        <ul class="gains" id="gains"></ul>
+      </div>
+      <div class="block">
+        <h2>Critério</h2>
+        <label for="lambda"><span id="lambda-label"></span></label>
+        <input type="range" id="lambda" min="0" max="1" step="0.05" value="0">
+        <p class="hint">Em 0, menos pontos sempre vence e o peso só desempata caminhos de mesmo custo. Acima de 0, o caminho aceita gastar esse tanto de pontos a mais para cada 1,0 de peso que ganhar.</p>
+      </div>
+    </div>
+  </div>
+
+  <details class="block">
+    <summary><h2 style="display:inline">Configuração em JSON</h2></summary>
+    <p class="hint">Mesma configuração da tela, para guardar, editar à mão ou compartilhar. Edite e clique em Aplicar.</p>
+    <textarea id="json" spellcheck="false" aria-label="Configuração em JSON"></textarea>
+    <div class="row">
+      <button type="button" class="btn" id="json-apply">Aplicar</button>
+      <button type="button" class="btn" id="json-copy">Copiar</button>
+      <button type="button" class="btn" id="json-reset">Restaurar padrão</button>
+      <span id="json-msg" class="hint"></span>
+    </div>
+  </details>
+
+  <p class="hint">Dados das boards: planner do GameWith (base nas páginas oficiais do AION2), global, 06/10/2026. O custo por node é estimado pela raridade (1/2/3/4). Até 13 obrigatórios por árvore o resultado é o ótimo exato; acima disso é uma aproximação.</p>
+</div>
+
+<script src="data.js"></script>
+<script src="solver.js"></script>
+<script>
+;(function () {
+  const DATA = window.DAEVANION_DATA
+  const { solve } = window.DaevanionSolver
+  const $ = (id) => document.getElementById(id)
+  const STORE = 'daevanion-rota-v1'
+  const fmt = (x) => (Math.round(x * 100) / 100).toLocaleString('pt-BR')
+
+  // peso padrão por stat (chave em inglês, estável): só o que é ataque/dano direto
+  const DEFAULT_STAT_WEIGHT = { 'Attack Bonus': 1, 'PvP Attack': 1, 'Damage Boost': 1, 'PvP Damage Boost': 1 }
+  const ABBR = {
+    'Attack Bonus': 'ATQ', 'Critical Hit': 'CRI', 'Critical Hit Resist': 'RCR', 'Defense Bonus': 'DEF', HP: 'PV', MP: 'PM',
+    'Combat Speed': 'VEL', 'Cooldown Reduction': 'REC', 'Damage Boost': 'DAN', 'Damage Tolerance': 'TOL',
+    'Critical Damage Boost': 'DCR', 'Critical Damage Tolerance': 'TCR', 'Multi-hit Chance': 'MUL', 'Multi-hit Resist': 'RMU',
+    'PvP Attack': 'ATQ', 'PvP Defense': 'DEF', 'PvP Critical Hit': 'CRI', 'PvP Critical Hit Resist': 'RCR', 'PvP Accuracy': 'PRE',
+    'PvP Evasion': 'EVA', 'PvP Damage Boost': 'DAN', 'PvP Damage Tolerance': 'TOL', 'Status Effect Chance': 'EST', 'Status Effect Resist': 'RES',
+  }
+
+  // ---- tipos de node por árvore ------------------------------------------
+  // tipo = mesmo efeito (ex.: "Ataque Adicional +3") ou mesma habilidade
+  const typeLabel = (n) => n.effects.join(' · ')
+  const boards = DATA.boards.map((b) => {
+    const types = new Map()
+    for (const n of b.nodes) {
+      if (n.type === 'Start') continue
+      const key = typeLabel(n)
+      n.typeKey = key
+      if (!types.has(key)) {
+        types.set(key, {
+          key, skill: n.type === 'SkillLevel', grade: n.grade, cost: n.cost, nodes: [],
+          def: n.stats.reduce((s, st) => s + (DEFAULT_STAT_WEIGHT[st] || 0), 0),
+        })
+      }
+      types.get(key).nodes.push(n)
+    }
+    const list = [...types.values()].sort((a, b2) => a.skill - b2.skill || b2.cost - a.cost || a.key.localeCompare(b2.key, 'pt'))
+    const rows = b.nodes.map((n) => n.row), cols = b.nodes.map((n) => n.col)
+    return { ...b, types: list, typeByKey: types, byId: new Map(b.nodes.map((n) => [n.id, n])),
+      r0: Math.min(...rows), r1: Math.max(...rows), c0: Math.min(...cols), c1: Math.max(...cols) }
+  })
+
+  // ---- estado ---------------------------------------------------------------
+  const blank = () => ({ lambda: 0, boards: Object.fromEntries(boards.map((b) => [b.id, { weights: {}, reqTypes: [], reqNodes: [], blocked: [] }])) })
+  let state = blank()
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE) || 'null')
+    if (saved && saved.boards) {
+      state.lambda = +saved.lambda || 0
+      for (const b of boards) if (saved.boards[b.id]) Object.assign(state.boards[b.id], saved.boards[b.id])
+    }
+  } catch (e) {}
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify(state)) } catch (e) {} }
+
+  let active = boards[0]
+  let mode = 'req'
+  const results = {}
+  const cfg = (b) => state.boards[b.id]
+  const weightOf = (b, key) => { const w = cfg(b).weights[key]; return w === undefined ? b.typeByKey.get(key).def : w }
+  const requiredIds = (b) => {
+    const ids = new Set(cfg(b).reqNodes)
+    for (const key of cfg(b).reqTypes) (b.typeByKey.get(key)?.nodes || []).forEach((n) => ids.add(n.id))
+    cfg(b).blocked.forEach((id) => ids.delete(id))
+    return ids
+  }
+  const compute = (b) => {
+    results[b.id] = solve(b, requiredIds(b), {
+      lambda: state.lambda, blockedIds: new Set(cfg(b).blocked),
+      valueOf: (n) => (n.typeKey ? weightOf(b, n.typeKey) : 0),
+    })
+  }
+
+  // ---- render ---------------------------------------------------------------
+  function renderTabs() {
+    $('tabs').innerHTML = ''
+    for (const b of boards) {
+      const t = document.createElement('button')
+      t.type = 'button'; t.className = 'tab'; t.role = 'tab'; t.id = 'tab-' + b.id
+      t.setAttribute('aria-selected', b === active)
+      const r = results[b.id]
+      t.innerHTML = `<span>${b.name}</span><small>${r && r.ok ? r.points : '–'}/${b.totalCost}</small>`
+      t.onclick = () => { active = b; renderAll() }
+      $('tabs').appendChild(t)
+    }
+  }
+
+  function abbr(n) {
+    if (n.type === 'Start') return ''
+    if (n.type === 'SkillLevel') return 'HAB'
+    return (ABBR[n.stats[0]] || n.name.slice(0, 3).toUpperCase()) + (n.stats.length > 1 ? '+' : '')
+  }
+  function describe(b, n) {
+    if (n.type === 'Start') return `<b>${n.name}</b> — ponto de partida, sem custo.`
+    const req = requiredIds(b).has(n.id)
+    const byType = cfg(b).reqTypes.includes(n.typeKey)
+    const flags = [cfg(b).blocked.includes(n.id) ? 'bloqueado' : '', req ? (byType ? 'obrigatório pelo tipo' : 'obrigatório') : '',
+      results[b.id]?.ok && results[b.id].ids.has(n.id) ? 'no caminho' : ''].filter(Boolean).join(', ')
+    return `<b>${n.effects.join(' · ')}</b> — ${n.cost} ${n.cost > 1 ? 'pontos' : 'ponto'}, peso ${fmt(weightOf(b, n.typeKey))}` +
+      ` · linha ${n.row - b.r0 + 1}, coluna ${n.col - b.c0 + 1}${flags ? ' · ' + flags : ''}`
+  }
+
+  function renderGrid() {
+    const b = active, r = results[b.id], req = requiredIds(b), blocked = new Set(cfg(b).blocked)
+    const focused = document.activeElement?.dataset?.node
+    const g = $('grid')
+    g.innerHTML = ''
+    g.style.gridTemplateColumns = `repeat(${b.c1 - b.c0 + 1}, minmax(0, 1fr))`
+    const at = new Map(b.nodes.map((n) => [n.row + ',' + n.col, n]))
+    for (let row = b.r0; row <= b.r1; row++) {
+      for (let col = b.c0; col <= b.c1; col++) {
+        const n = at.get(row + ',' + col)
+        if (!n) { const d = document.createElement('div'); d.className = 'gap'; g.appendChild(d); continue }
+        const c = document.createElement('button')
+        c.type = 'button'
+        c.dataset.node = n.id
+        c.className = 'cell g-' + n.grade + (n.type === 'SkillLevel' ? ' skill' : '') + (n.type === 'Start' ? ' start' : '') +
+          (n.typeKey && weightOf(b, n.typeKey) > 0 ? ' weighted' : '') +
+          (blocked.has(n.id) ? ' blocked' : req.has(n.id) ? ' req' : r?.ok && r.ids.has(n.id) && n.type !== 'Start' ? ' path' : '')
+        if (n.icon) {
+          const img = document.createElement('img')
+          img.src = n.icon
+          img.alt = n.effects.join(' · ')
+          img.onerror = () => { c.textContent = abbr(n) }
+          c.appendChild(img)
+        } else c.textContent = abbr(n)
+        c.title = n.type === 'Start' ? n.name : `${n.effects.join(' · ')} · ${n.cost} pt`
+        c.setAttribute('aria-pressed', req.has(n.id))
+        const show = () => ($('info').innerHTML = describe(b, n))
+        c.onmouseenter = show; c.onfocus = show
+        if (n.type !== 'Start') c.onclick = () => toggleNode(n.id, mode)
+        c.oncontextmenu = (e) => { e.preventDefault(); if (n.type !== 'Start') toggleNode(n.id, 'block') }
+        g.appendChild(c)
+      }
+    }
+    if (focused) g.querySelector(`[data-node="${focused}"]`)?.focus()
+  }
+
+  function renderResult() {
+    const b = active, r = results[b.id]
+    $('res-title').textContent = 'Resultado · ' + b.name
+    const badge = $('res-badge')
+    if (!r.ok) {
+      $('res-points').textContent = '–'
+      badge.className = 'badge err'
+      badge.textContent = 'Sem caminho: um bloqueio isola um node obrigatório'
+      $('res-nodes').textContent = $('res-weight').textContent = '–'
+      $('gains').innerHTML = ''
+    } else {
+      $('res-points').textContent = r.points
+      $('res-of').textContent = `de ${b.totalCost} pontos`
+      badge.className = 'badge' + (r.exact ? '' : ' approx')
+      badge.textContent = r.exact ? 'Caminho ótimo' : 'Aproximado (mais de 13 obrigatórios)'
+      $('res-nodes').textContent = r.ids.size - 1
+      $('res-weight').textContent = fmt(r.attack)
+      // soma os efeitos dos nodes escolhidos: "Nome +X" / "Nome +X%"
+      const sum = new Map()
+      for (const id of r.ids) for (const e of b.byId.get(id).effects) {
+        const m = e.match(/^(.*) \+([\d.]+)(%?)$/)
+        if (!m) continue
+        const cur = sum.get(m[1]) || { v: 0, pct: m[3] }
+        cur.v += +m[2]
+        sum.set(m[1], cur)
+      }
+      $('gains').innerHTML = sum.size
+        ? [...sum].map(([k, x]) => `<li><span>${k}</span><span>+${fmt(x.v)}${x.pct}</span></li>`).join('')
+        : '<li><span class="hint">Nada ainda. Marque um node ou um tipo como obrigatório.</span></li>'
+    }
+    const total = boards.reduce((s, x) => s + (results[x.id]?.ok ? results[x.id].points : 0), 0)
+    $('res-total').textContent = total + ' pts'
+    for (const t of b.types) {
+      const el = $('got-' + b.id + '-' + b.types.indexOf(t))
+      if (el) el.textContent = (r.ok ? t.nodes.filter((n) => r.ids.has(n.id)).length : 0) + '/' + t.nodes.length
+    }
+  }
+
+  function renderTypes() {
+    const b = active
+    $('types-title').textContent = 'Tipos de node · ' + b.name
+    const body = $('types')
+    body.innerHTML = ''
+    let lastSkill = null
+    b.types.forEach((t, i) => {
+      if (t.skill !== lastSkill) {
+        lastSkill = t.skill
+        const g = document.createElement('tr'); g.className = 'grp'
+        g.innerHTML = `<td colspan="4">${t.skill ? 'Habilidades' : 'Atributos'}</td>`
+        body.appendChild(g)
+      }
+      const tr = document.createElement('tr')
+      const color = { Rare: 'var(--rare)', Legend: 'var(--legend)', Unique: 'var(--unique)' }[t.grade] || 'var(--common)'
+      tr.innerHTML =
+        `<td class="c"><input type="checkbox" id="rq-${b.id}-${i}" aria-label="Obrigatório: ${t.key}"></td>` +
+        `<td><label for="rq-${b.id}-${i}">${t.nodes[0].icon ? `<img class="ic" src="${t.nodes[0].icon}" alt="" style="border-color:${color}">` : `<span class="sw${t.skill ? ' skill' : ''}" style="border-color:${color}"></span>`}${t.key}<small>${t.nodes.length}× · ${t.cost} pt</small></label></td>` +
+        `<td class="r"><input class="num" type="number" step="0.1" min="0" id="w-${b.id}-${i}" aria-label="Peso: ${t.key}"></td>` +
+        `<td class="r" id="got-${b.id}-${i}"></td>`
+      body.appendChild(tr)
+      const cb = $(`rq-${b.id}-${i}`), w = $(`w-${b.id}-${i}`)
+      cb.checked = cfg(b).reqTypes.includes(t.key)
+      w.value = weightOf(b, t.key)
+      cb.onchange = () => {
+        const set = new Set(cfg(b).reqTypes)
+        cb.checked ? set.add(t.key) : set.delete(t.key)
+        cfg(b).reqTypes = [...set]
+        changed(b)
+      }
+      w.oninput = () => {
+        const v = parseFloat(w.value)
+        cfg(b).weights[t.key] = isFinite(v) && v >= 0 ? v : 0
+        clearTimeout(w._t)
+        w._t = setTimeout(() => changed(b), 250)
+      }
+    })
+  }
+
+  function renderLambda() {
+    $('lambda').value = state.lambda
+    $('lambda-label').textContent = state.lambda > 0
+      ? `Aceito gastar até ${fmt(state.lambda)} ponto a mais por 1,0 de peso`
+      : 'Menos pontos primeiro; peso só desempata'
+  }
+
+  // ---- JSON legível ---------------------------------------------------------
+  const nodeRef = (b, id) => { const n = b.byId.get(id); return `L${n.row - b.r0 + 1}C${n.col - b.c0 + 1}` }
+  function toJson() {
+    const out = { toleranciaPontosPorPeso: state.lambda, arvores: {} }
+    for (const b of boards) {
+      out.arvores[b.name] = {
+        tipos: Object.fromEntries(b.types.map((t) => [t.key, { peso: weightOf(b, t.key), obrigatorio: cfg(b).reqTypes.includes(t.key) }])),
+        nodesObrigatorios: cfg(b).reqNodes.map((id) => nodeRef(b, id)),
+        nodesBloqueados: cfg(b).blocked.map((id) => nodeRef(b, id)),
+      }
+    }
+    return JSON.stringify(out, null, 2)
+  }
+  function fromJson(text) {
+    const src = JSON.parse(text)
+    const next = blank()
+    next.lambda = Math.min(1, Math.max(0, +src.toleranciaPontosPorPeso || 0))
+    for (const b of boards) {
+      const a = src.arvores?.[b.name]
+      if (!a) continue
+      const c = next.boards[b.id]
+      for (const [key, v] of Object.entries(a.tipos || {})) {
+        if (!b.typeByKey.has(key)) throw new Error(`Tipo desconhecido em ${b.name}: "${key}"`)
+        if (isFinite(+v.peso) && +v.peso >= 0) c.weights[key] = +v.peso
+        if (v.obrigatorio) c.reqTypes.push(key)
+      }
+      const toId = (ref) => {
+        const m = /^L(\d+)C(\d+)$/i.exec(ref)
+        const n = m && b.nodes.find((x) => x.row - b.r0 + 1 === +m[1] && x.col - b.c0 + 1 === +m[2] && x.type !== 'Start')
+        if (!n) throw new Error(`Node inválido em ${b.name}: "${ref}"`)
+        return n.id
+      }
+      c.reqNodes = (a.nodesObrigatorios || []).map(toId)
+      c.blocked = (a.nodesBloqueados || []).map(toId)
+    }
+    state = next
+  }
+
+  // ---- ações ----------------------------------------------------------------
+  function toggleNode(id, how) {
+    const c = cfg(active)
+    const flip = (arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id])
+    if (how === 'block') { c.blocked = flip(c.blocked); c.reqNodes = c.reqNodes.filter((x) => x !== id) }
+    else { c.reqNodes = flip(c.reqNodes); c.blocked = c.blocked.filter((x) => x !== id) }
+    changed(active)
+    $('info').innerHTML = describe(active, active.byId.get(id))
+  }
+  function changed(b) {
+    compute(b)
+    save()
+    renderTabs(); renderGrid(); renderResult()
+    $('json').value = toJson()
+  }
+  function recomputeAll() { boards.forEach(compute) }
+  function renderAll() {
+    renderTabs(); renderGrid(); renderTypes(); renderResult(); renderLambda()
+    $('json').value = toJson()
+  }
+
+  $('mode-req').onclick = () => setMode('req')
+  $('mode-block').onclick = () => setMode('block')
+  function setMode(m) {
+    mode = m
+    $('mode-req').setAttribute('aria-pressed', m === 'req')
+    $('mode-block').setAttribute('aria-pressed', m === 'block')
+  }
+  $('clear').onclick = () => {
+    Object.assign(cfg(active), { reqTypes: [], reqNodes: [], blocked: [] })
+    compute(active); save(); renderAll()
+  }
+  $('lambda').oninput = () => {
+    state.lambda = +$('lambda').value
+    renderLambda()
+    clearTimeout($('lambda')._t)
+    $('lambda')._t = setTimeout(() => { recomputeAll(); save(); renderAll() }, 200)
+  }
+  $('goto-types').onclick = () => $('tipos').scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const msg = (t) => ($('json-msg').textContent = t)
+  $('json-apply').onclick = () => {
+    try { fromJson($('json').value); recomputeAll(); save(); renderAll(); msg('Aplicado.') }
+    catch (e) { msg('Não foi possível aplicar: ' + e.message) }
+  }
+  $('json-copy').onclick = () => {
+    const done = () => msg('Copiado.')
+    const fallback = () => { $('json').select(); msg('Selecionado. Use Ctrl+C para copiar.') }
+    navigator.clipboard?.writeText ? navigator.clipboard.writeText($('json').value).then(done, fallback) : fallback()
+  }
+  $('json-reset').onclick = () => { state = blank(); recomputeAll(); save(); renderAll(); msg('Padrão restaurado.') }
+
+  recomputeAll()
+  renderAll()
+})()
+</script>
