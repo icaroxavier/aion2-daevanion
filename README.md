@@ -2,8 +2,7 @@
 
 Calculadora de caminho para a Daevanion Board do Aion 2, para as 8 classes.
 
-Você escolhe a classe e o papel (DPS; Tank para Gladiador e Templário). O papel
-define os pesos padrão: no DPS, tudo que é defensivo começa em 0.
+Você escolhe a classe (por ora só o papel DPS: tudo que é defensivo começa em 0).
 
 Você marca o que é obrigatório (um node específico ou um tipo inteiro) e dá um
 peso para cada tipo de node de cada árvore. A página calcula o conjunto de nodes
@@ -21,10 +20,13 @@ O problema é uma árvore de Steiner com peso nos nodes: achar o conjunto conexo
   marcada na tela como aproximada.
 - Com o critério em 0, menos pontos sempre vence e o peso só desempata.
 
-## Link compartilhável
+## Salvar e compartilhar
 
-O endereço da página carrega a configuração inteira (`#s=...`): classe, papel,
-critério, pesos alterados, obrigatórios e bloqueios. Abrir o link importa tudo.
+Nada é guardado no navegador. O endereço da página carrega a configuração da
+classe aberta (`#s=...`) e "Salvar em arquivo" grava um JSON com todas as
+classes. O arquivo tem `schema`; `migrate()` em `app.js` leva versões antigas
+até a atual, e `adopt()` descarta o que não existe mais nos dados do jogo.
+Links antigos (v1) continuam abrindo.
 
 ## Arquivos
 
@@ -63,3 +65,11 @@ nível médio. Isso vira o peso padrão de cada node de habilidade. Só números
 agregados são guardados.
 
 `node tools/dev-server.js` sobe a página com a função `/api/char` localmente.
+
+## Habilidades e fontes de pontos
+
+Ativas: o jogador marca as que importam (peso 10 por +1 nível). Passivas:
+entram marcadas com peso estimado pela amostra. A montagem automática só roda
+depois dessa escolha e pode dividir um total de pontos entre as 4 árvores
+(Azphel usa pontos próprios). A seção "Fontes de pontos" soma nível, missões
+regionais, masmorras seladas e lojas (contagens do guia do MetaBot).

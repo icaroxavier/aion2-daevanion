@@ -1,12 +1,13 @@
 ;(function () {
-  const { solve } = window.DaevanionSolver
+  const { solve, solveMany } = window.DaevanionSolver
   const $ = (id) => document.getElementById(id)
-  const STORE = 'daevanion-rota-v2'
   const fmt = (x) => (Math.round(x * 100) / 100).toLocaleString('pt-BR')
+  const round1 = (x) => Math.round(x * 10) / 10
+  const int = (x, max) => Math.min(max === undefined ? 1e6 : max, Math.max(0, Math.floor(+x || 0)))
 
   // ---- classes e papéis -----------------------------------------------------
+  // por ora só DPS (Tank e Healer ficam para depois)
   const CLASSES = [
-    // por ora só DPS (Tank e Healer ficam para depois)
     { slug: 'gladiator', name: 'Gladiador', roles: ['dps'] },
     { slug: 'templar', name: 'Templário', roles: ['dps'] },
     { slug: 'ranger', name: 'Arqueiro', roles: ['dps'] },
@@ -17,11 +18,10 @@
     { slug: 'chanter', name: 'Encantador', roles: ['dps'] },
   ]
   // Peso padrão por stat (chave em inglês, estável) em cada papel. Stat que não
-  // aparece vale 0 — no DPS, tudo que é defensivo; no Tank, tudo que é ofensivo.
-  // Nodes de habilidade começam em 0 nos dois.
+  // aparece vale 0 — no DPS, tudo que é defensivo.
   //
-  // Escala do DPS: 1,0 = um node comum de Ataque Adicional +3. Os % (nodes
-  // únicos) são convertidos por dano real estimado no endgame (KR), segundo
+  // Escala: 1,0 = um node comum de Ataque Adicional +3. Os % (nodes únicos) são
+  // convertidos por dano real estimado no endgame (KR), segundo
   // https://gameplay.tips/guides/aion-2-how-stats-work-damage-formula-guide.html:
   //   Ataque Adicional  ~0,1% de dano a cada 10  → +3    ≈ 0,03%  → 1
   //   Amplif. de Dano   ~0,35% por 1%            → +1,5% ≈ 0,53%  → 17
@@ -30,7 +30,6 @@
   // Sem número publicado (estimativa nossa): Velocidade de Combate ~0,7% por 1%
   // (→ 35) e Redução de Recarga ~0,5% por 1% (→ 25). Acerto Crítico, Precisão e
   // Acerto de Alteração de Estado ficam em 1 por falta de conversão conhecida.
-  // No Tank, os únicos defensivos espelham esses valores (suposição).
   const ROLES = {
     dps: {
       name: 'DPS',
@@ -38,13 +37,6 @@
         'Attack Bonus': 1, 'PvP Attack': 1, 'Critical Hit': 1, 'PvP Critical Hit': 1, 'PvP Accuracy': 1, 'Status Effect Chance': 1,
         'Damage Boost': 17, 'PvP Damage Boost': 17, 'Multi-hit Chance': 16, 'Critical Damage Boost': 25,
         'Cooldown Reduction': 25, 'Combat Speed': 35,
-      },
-    },
-    tank: {
-      name: 'Tank',
-      weights: {
-        HP: 1, 'Defense Bonus': 1, 'PvP Defense': 1, 'Critical Hit Resist': 1, 'PvP Critical Hit Resist': 1, 'PvP Evasion': 1, 'Status Effect Resist': 1,
-        'Damage Tolerance': 17, 'PvP Damage Tolerance': 17, 'Multi-hit Resist': 16, 'Critical Damage Tolerance': 25,
       },
     },
   }
@@ -55,25 +47,32 @@
     'PvP Attack': 'ATQ', 'PvP Defense': 'DEF', 'PvP Critical Hit': 'CRI', 'PvP Critical Hit Resist': 'RCR', 'PvP Accuracy': 'PRE',
     'PvP Evasion': 'EVA', 'PvP Damage Boost': 'DAN', 'PvP Damage Tolerance': 'TOL', 'Status Effect Chance': 'EST', 'Status Effect Resist': 'RES',
   }
+  // Azphel (JvJ) usa outra moeda: fica fora do total compartilhado de pontos
+  const isPvpBoard = (b) => b.name === 'Azphel'
 
   // ---- dados por classe (carregados sob demanda) ---------------------------
-  // tipo de node = mesmo efeito (ex.: "Ataque Adicional +3") ou mesma habilidade
+  // Tipo de node = mesmo efeito (ex.: "Ataque Adicional +3") ou mesma habilidade.
+  // `key` é a identidade ESTÁVEL usada em tudo que é salvo (independe de
+  // tradução); `label` é só o texto exibido.
   const PREP = {}
   function prepare(data) {
     return data.boards.map((b) => {
       const types = new Map()
       for (const n of b.nodes) {
         if (n.type === 'Start') continue
-        const key = n.effects.join(' · ')
+        const key = n.type === 'SkillLevel' ? 'skill:' + n.skill : 'stat:' + n.stats.join('+') + '@' + n.cost
         n.typeKey = key
-        if (!types.has(key)) types.set(key, { key, skill: n.type === 'SkillLevel', grade: n.grade, cost: n.cost, stats: n.stats, nodes: [] })
+        if (!types.has(key)) {
+          types.set(key, { key, label: n.effects.join(' · '), skill: n.type === 'SkillLevel', grade: n.grade, cost: n.cost, stats: n.stats, nodes: [] })
+        }
         types.get(key).nodes.push(n)
       }
-      const list = [...types.values()].sort((a, b2) => a.skill - b2.skill || b2.cost - a.cost || a.key.localeCompare(b2.key, 'pt'))
+      // a ordem (por label) é a mesma desde a 1ª versão: links antigos guardam o índice
+      const list = [...types.values()].sort((a, b2) => a.skill - b2.skill || b2.cost - a.cost || a.label.localeCompare(b2.label, 'pt'))
       const rows = b.nodes.map((n) => n.row)
       const cols = b.nodes.map((n) => n.col)
       return {
-        ...b, types: list, typeByKey: types, byId: new Map(b.nodes.map((n) => [n.id, n])),
+        ...b, types: list, typeByKey: types, byLabel: new Map(list.map((t) => [t.label, t])), byId: new Map(b.nodes.map((n) => [n.id, n])),
         r0: Math.min(...rows), r1: Math.max(...rows), c0: Math.min(...cols), c1: Math.max(...cols),
       }
     })
@@ -83,54 +82,164 @@
     return new Promise((resolve, reject) => {
       const s = document.createElement('script')
       s.src = 'data/' + slug + '.js'
-      s.onload = () => resolve((PREP[slug] = prepare(window.DAEVANION_DATA[slug])))
+      s.onload = () => {
+        PREP[slug] = prepare(window.DAEVANION_DATA[slug])
+        adopt(slug)
+        resolve(PREP[slug])
+      }
       s.onerror = () => reject(new Error('Não foi possível carregar os dados da classe.'))
       document.head.appendChild(s)
     })
   }
 
-  // ---- estado ---------------------------------------------------------------
-  // state.classes[slug] = { role, boards: { [boardId]: { weights, reqTypes, reqNodes, blocked } } }
-  let state = { cls: null, lambda: 0, classes: {} }
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORE) || 'null')
-    if (saved && saved.classes) state = { cls: saved.cls || null, lambda: +saved.lambda || 0, classes: saved.classes }
-  } catch (e) {}
+  // ---- estado salvo (versionado) --------------------------------------------
+  // Formato atual (SCHEMA 3) do arquivo exportado.
+  //   { schema, cls, lambda,
+  //     classes: { [slug]: {
+  //       role, pool, skills: { [nomeEN]: bool }, skillsDone, sources: {...}, char: {...},
+  //       boards: { [boardId]: { weights: { [typeKey]: n }, reqTypes: [typeKey], reqNodes: [id], blocked: [id], owned: [id], budget } } } } }
+  //
+  // Regras para mudar sem quebrar quem já tem dados:
+  //   1. Campo novo: só ler com valor padrão (normalize) — não precisa subir SCHEMA.
+  //   2. Mudou o significado ou o formato de um campo: suba SCHEMA e acrescente
+  //      um passo em MIGRATIONS (de N para N+1). Nunca edite um passo antigo.
+  //   3. Campos desconhecidos são preservados; o que não bate com os dados
+  //      atuais do jogo (tipo ou node que sumiu) é descartado em adopt().
+  const SCHEMA = 3
+  const MIGRATIONS = {
+    // 2 → 3: papel Tank saiu; tipos passaram a ter chave estável (a troca das
+    // chaves antigas, que eram o texto em português, acontece em adopt()).
+    2: (s) => {
+      for (const c of Object.values(s.classes || {})) if (c && c.role === 'tank') c.role = 'dps'
+      return s
+    },
+  }
+  const emptyBoard = () => ({ weights: {}, reqTypes: [], reqNodes: [], blocked: [], owned: [], budget: 0 })
+  const emptySources = () => ({ level: 0, quests: 0, dungeons: 0, festival: 0, nightmare: 0, other: 0 })
+  const ids = (a) => (Array.isArray(a) ? a.filter((x) => Number.isInteger(x)) : [])
+
+  /** Leva dados de qualquer versão conhecida até a atual. null = irreconhecível. */
+  function migrate(raw) {
+    if (!raw || typeof raw !== 'object' || typeof raw.classes !== 'object' || !raw.classes) return null
+    let s = JSON.parse(JSON.stringify(raw))
+    let v = Number.isInteger(s.schema) ? s.schema : 2
+    if (v > SCHEMA) return { future: v }
+    while (v < SCHEMA) {
+      if (MIGRATIONS[v]) s = MIGRATIONS[v](s)
+      v++
+    }
+    s.schema = SCHEMA
+    return normalize(s)
+  }
+  /** Garante tipos e padrões de todos os campos conhecidos, sem apagar os desconhecidos. */
+  function normalize(s) {
+    s.cls = CLASSES.some((c) => c.slug === s.cls) ? s.cls : null
+    s.lambda = Math.min(1, Math.max(0, +s.lambda || 0))
+    for (const [slug, c] of Object.entries(s.classes)) {
+      if (!c || typeof c !== 'object' || !CLASSES.some((x) => x.slug === slug)) {
+        delete s.classes[slug]
+        continue
+      }
+      c.role = ROLES[c.role] ? c.role : null
+      c.pool = int(c.pool)
+      c.skills = c.skills && typeof c.skills === 'object' ? c.skills : {}
+      c.skillsDone = !!c.skillsDone
+      c.sources = { ...emptySources(), ...(c.sources && typeof c.sources === 'object' ? c.sources : {}) }
+      c.boards = c.boards && typeof c.boards === 'object' ? c.boards : {}
+      for (const [id, b] of Object.entries(c.boards)) {
+        if (!b || typeof b !== 'object') {
+          delete c.boards[id]
+          continue
+        }
+        b.weights = b.weights && typeof b.weights === 'object' ? b.weights : {}
+        b.reqTypes = Array.isArray(b.reqTypes) ? b.reqTypes.filter((k) => typeof k === 'string') : []
+        b.reqNodes = ids(b.reqNodes)
+        b.blocked = ids(b.blocked)
+        b.owned = ids(b.owned)
+        b.budget = int(b.budget)
+      }
+    }
+    return s
+  }
+  /**
+   * Casa o que foi salvo com os dados atuais da classe: traduz chaves de tipo
+   * antigas (o texto em português) para a chave estável e descarta o que não
+   * existe mais. Roda toda vez que uma classe carrega — é idempotente.
+   */
+  function adopt(slug) {
+    const c = state.classes[slug]
+    if (!c || !PREP[slug]) return
+    for (const b of PREP[slug]) {
+      const cfgB = c.boards[b.id]
+      if (!cfgB) continue
+      const keyOf = (k) => (b.typeByKey.has(k) ? k : b.byLabel.has(k) ? b.byLabel.get(k).key : null)
+      const weights = {}
+      for (const [k, w] of Object.entries(cfgB.weights)) {
+        const key = keyOf(k)
+        if (key && isFinite(+w) && +w >= 0) weights[key] = +w
+      }
+      cfgB.weights = weights
+      cfgB.reqTypes = [...new Set(cfgB.reqTypes.map(keyOf).filter(Boolean))]
+      const real = (id) => b.byId.has(id) && b.byId.get(id).type !== 'Start'
+      cfgB.reqNodes = cfgB.reqNodes.filter(real)
+      cfgB.blocked = cfgB.blocked.filter(real)
+      cfgB.owned = cfgB.owned.filter(real)
+    }
+  }
+
+  // Nada é guardado no navegador: o estado vive no endereço da página (#s=...)
+  // e no arquivo exportado.
+  let state = { schema: SCHEMA, cls: null, lambda: 0, classes: {} }
+  const storageNote = ''
 
   let boards = []
   let active = null
   let mode = 'req'
   let results = {}
-  // owned = nodes já abertos (importados do personagem); budget = pontos da montagem automática
-  const emptyBoard = () => ({ weights: {}, reqTypes: [], reqNodes: [], blocked: [], owned: [], budget: 0 })
-  const cc = () => (state.classes[state.cls] = state.classes[state.cls] || { role: null, boards: {} })
+  const cc = () => {
+    if (!state.classes[state.cls]) state.classes[state.cls] = normalize({ classes: { [state.cls]: {} } }).classes[state.cls]
+    return state.classes[state.cls]
+  }
   const cfg = (b) => (cc().boards[b.id] = cc().boards[b.id] || emptyBoard())
   const classInfo = () => CLASSES.find((c) => c.slug === state.cls)
   const ready = () => !!(state.cls && cc().role && boards.length)
 
-  // Peso padrão de um node de habilidade (+1 nível), pela amostra de personagens
-  // nível 45 da classe (data/skill-stats.js): quanto a skill é usada (ativa: %
-  // com ela na barra; passiva: % que aprendeu) × quanto investem nela (nível
-  // médio relativo ao da skill mais upada, ao quadrado). SKILL_BASE é chute
-  // nosso: +1 nível numa skill principal ≈ 0,3% de dano ≈ 10 nodes de ataque.
+  // ---- habilidades ------------------------------------------------------------
+  // Ativas: quem decide é o jogador (cada um monta a rotação de um jeito). Uma
+  // ativa marcada vale SKILL_BASE; desmarcada vale 0.
+  // Passivas: entram marcadas, com peso estimado pela amostra de personagens
+  // nível 45 da classe (data/skill-stats.js): % que aprendeu × (nível médio
+  // relativo ao da skill mais upada)². É investimento observado, não dano medido.
+  // SKILL_BASE é chute nosso: +1 nível numa skill principal ≈ 10 nodes de ataque.
   const SKILL_BASE = 10
-  const round1 = (x) => Math.round(x * 10) / 10
-  function skillWeight(name) {
-    const st = (window.DAEVANION_SKILL_STATS || {})[state.cls]
-    const s = st && st.skills[name]
-    if (!s) return 0
+  const stats = () => (window.DAEVANION_SKILL_STATS || {})[state.cls] || { skills: {} }
+  const skillStat = (name) => stats().skills[name]
+  const isPassive = (name) => (skillStat(name) || {}).cat === 'Passive'
+  const skillPicked = (name) => {
+    const v = cc().skills[name]
+    return v === undefined ? isPassive(name) : !!v
+  }
+  function passiveEstimate(name) {
+    const st = stats()
+    const s = st.skills[name]
+    if (!s) return SKILL_BASE / 2
     const top = (st._top = st._top || Math.max(...Object.values(st.skills).map((x) => x.avg)))
-    const use = s.cat === 'Passive' ? s.learned : s.equipped
-    return round1(SKILL_BASE * use * Math.pow(s.avg / top, 2))
+    return round1(SKILL_BASE * s.learned * Math.pow(s.avg / top, 2))
   }
-  /** Mesmo cálculo, mas com as skills do personagem importado. */
-  function charSkillWeight(name) {
-    const list = cc().char?.skills || []
-    const s = list.find((x) => x.name === name)
-    if (!s || !(s.cat === 'Passive' || s.equip)) return 0
-    const top = Math.max(1, ...list.map((x) => x.level))
-    return round1(SKILL_BASE * Math.pow(s.level / top, 2))
+  const skillWeight = (name) => (!skillPicked(name) ? 0 : isPassive(name) ? passiveEstimate(name) : SKILL_BASE)
+  /** Habilidades que têm node em alguma árvore da classe (uma entrada por skill). */
+  function classSkills() {
+    const seen = new Map()
+    for (const b of boards) for (const t of b.types) if (t.skill && !seen.has(t.nodes[0].skill)) {
+      seen.set(t.nodes[0].skill, { name: t.nodes[0].skill, label: t.label.replace(/ \+1$/, ''), icon: t.nodes[0].icon })
+    }
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
   }
+  const anyActivePicked = () => classSkills().some((s) => !isPassive(s.name) && skillPicked(s.name))
+  // montagem automática só roda depois que o jogador disse quais ativas importam
+  const skillsSettled = () => cc().skillsDone || anyActivePicked()
+
+  // ---- pesos, obrigatórios, cálculo -----------------------------------------
   const roleWeight = (t) => {
     if (t.skill) return skillWeight(t.nodes[0].skill)
     const w = ROLES[cc().role]?.weights || {}
@@ -141,55 +250,76 @@
     return w === undefined ? roleWeight(b.typeByKey.get(key)) : w
   }
   const requiredIds = (b) => {
-    const ids = new Set(cfg(b).reqNodes)
-    for (const key of cfg(b).reqTypes) (b.typeByKey.get(key)?.nodes || []).forEach((n) => ids.add(n.id))
-    cfg(b).blocked.forEach((id) => ids.delete(id))
-    return ids
+    const set = new Set(cfg(b).reqNodes)
+    for (const key of cfg(b).reqTypes) (b.typeByKey.get(key)?.nodes || []).forEach((n) => set.add(n.id))
+    cfg(b).blocked.forEach((id) => set.delete(id))
+    return set
   }
-  const compute = (b) => {
-    results[b.id] = solve(b, requiredIds(b), {
-      lambda: state.lambda,
-      blockedIds: new Set(cfg(b).blocked),
-      freeIds: new Set(cfg(b).owned || []),
-      budget: cfg(b).budget || 0,
-      valueOf: (n) => (n.typeKey ? weightOf(b, n.typeKey) : 0),
-    })
+  const solveOpts = (b) => ({
+    lambda: state.lambda,
+    blockedIds: new Set(cfg(b).blocked),
+    freeIds: new Set(cfg(b).owned),
+    valueOf: (n) => (n.typeKey ? weightOf(b, n.typeKey) : 0),
+  })
+  const poolActive = () => cc().pool > 0 && skillsSettled()
+  function recomputeAll() {
+    const auto = skillsSettled()
+    const shared = poolActive() ? boards.filter((b) => !isPvpBoard(b)) : []
+    if (shared.length) {
+      const rs = solveMany(shared.map((b) => ({ board: b, requiredIds: requiredIds(b), opts: solveOpts(b) })), cc().pool)
+      shared.forEach((b, i) => (results[b.id] = { ...rs[i], pooled: true }))
+    }
+    for (const b of boards) {
+      if (shared.includes(b)) continue
+      results[b.id] = solve(b, requiredIds(b), { ...solveOpts(b), budget: auto ? cfg(b).budget : 0 })
+    }
   }
-  const recomputeAll = () => boards.forEach(compute)
+  // com o total compartilhado ligado, mexer numa árvore muda as outras
+  const compute = (b) => (poolActive() && !isPvpBoard(b) ? recomputeAll() : (results[b.id] = solve(b, requiredIds(b), { ...solveOpts(b), budget: skillsSettled() ? cfg(b).budget : 0 })))
 
   // ---- link compartilhável: #s=<base64url do estado compacto> ---------------
-  // { v, c: classe, r: papel, l: critério, b: { boardId: { w: {idxTipo: peso}, t: [idxTipo], n: [ids], x: [ids] } } }
+  // v2: { v, c: classe, l: critério, p: total compartilhado, d: skillsDone,
+  //       k: [skills marcadas], u: [skills desmarcadas] (só as que fogem do padrão),
+  //       b: { boardId: { w: {idNode: peso}, t: [idNode], n, x, o: [ids], g: orçamento } } }
+  //     tipos são identificados pelo id do primeiro node do tipo.
+  // v1 (links antigos): tipos por índice na lista ordenada — ainda é lido.
   let lastHash = ''
+  const repId = (t) => t.nodes[0].id
   function encodeState() {
     const b = {}
     for (const bd of boards) {
       const c = cfg(bd)
       const o = {}
       const w = {}
-      bd.types.forEach((t, i) => {
-        if (c.weights[t.key] !== undefined && c.weights[t.key] !== roleWeight(t)) w[i] = c.weights[t.key]
-      })
+      for (const t of bd.types) if (c.weights[t.key] !== undefined && c.weights[t.key] !== roleWeight(t)) w[repId(t)] = c.weights[t.key]
       if (Object.keys(w).length) o.w = w
-      const t = c.reqTypes.map((k) => bd.types.findIndex((x) => x.key === k)).filter((i) => i >= 0)
+      const t = c.reqTypes.map((k) => bd.typeByKey.get(k)).filter(Boolean).map(repId)
       if (t.length) o.t = t
       if (c.reqNodes.length) o.n = c.reqNodes
       if (c.blocked.length) o.x = c.blocked
-      if (c.owned?.length) o.o = c.owned
+      if (c.owned.length) o.o = c.owned
       if (c.budget > 0) o.g = c.budget
       if (Object.keys(o).length) b[bd.id] = o
     }
-    const json = JSON.stringify({ v: 1, c: state.cls, r: cc().role, l: state.lambda, b })
-    return btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    const out = { v: 2, c: state.cls, l: state.lambda, b }
+    if (cc().pool > 0) out.p = cc().pool
+    if (cc().skillsDone) out.d = 1
+    const k = []
+    const u = []
+    for (const [name, on] of Object.entries(cc().skills)) if (!!on !== isPassive(name)) (on ? k : u).push(name)
+    if (k.length) out.k = k
+    if (u.length) out.u = u
+    // fontes de pontos: [nível, missões, masmorras, festival, pesadelo, outros]
+    const src = ['level', 'quests', 'dungeons', 'festival', 'nightmare', 'other'].map((f) => int(cc().sources[f]))
+    if (src.some(Boolean)) out.s = src
+    return btoa(unescape(encodeURIComponent(JSON.stringify(out)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
   }
   function decodeHash() {
     const m = /^#s=([A-Za-z0-9_-]+)$/.exec(location.hash)
     if (!m) return null
     try {
-      const o = JSON.parse(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')))
-      const cls = CLASSES.find((c) => c.slug === o.c)
-      if (!cls) return null
-      if (!cls.roles.includes(o.r)) o.r = cls.roles[0] // links antigos com papel que saiu
-      return o
+      const o = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')))))
+      return CLASSES.some((c) => c.slug === o.c) ? o : null
     } catch (e) {
       return null
     }
@@ -199,24 +329,62 @@
     const prepared = await loadClass(o.c)
     state.cls = o.c
     state.lambda = Math.min(1, Math.max(0, +o.l || 0))
-    const c = (state.classes[o.c] = { role: o.r, boards: {} })
+    const keep = state.classes[o.c] || {}
+    const c = (state.classes[o.c] = normalize({ classes: { [o.c]: { role: 'dps', char: keep.char, sources: keep.sources } } }).classes[o.c])
+    c.pool = int(o.p)
+    c.skillsDone = !!o.d
+    for (const name of o.k || []) c.skills[name] = true
+    for (const name of o.u || []) c.skills[name] = false
+    if (Array.isArray(o.s)) ['level', 'quests', 'dungeons', 'festival', 'nightmare', 'other'].forEach((f, i) => (c.sources[f] = int(o.s[i])))
     for (const bd of prepared) {
       const src = (o.b || {})[bd.id]
       if (!src) continue
       const dst = (c.boards[bd.id] = emptyBoard())
-      for (const [i, w] of Object.entries(src.w || {})) if (bd.types[i] && isFinite(+w) && +w >= 0) dst.weights[bd.types[i].key] = +w
-      dst.reqTypes = (src.t || []).filter((i) => bd.types[i]).map((i) => bd.types[i].key)
-      dst.reqNodes = (src.n || []).filter((id) => bd.byId.has(id))
-      dst.blocked = (src.x || []).filter((id) => bd.byId.has(id))
-      dst.owned = (src.o || []).filter((id) => bd.byId.has(id))
-      dst.budget = Math.max(0, Math.floor(+src.g || 0))
+      const typeOf = (ref) => (o.v >= 2 ? bd.typeByKey.get(bd.byId.get(+ref)?.typeKey) : bd.types[ref])
+      for (const [ref, w] of Object.entries(src.w || {})) if (typeOf(ref) && isFinite(+w) && +w >= 0) dst.weights[typeOf(ref).key] = +w
+      dst.reqTypes = (src.t || []).map(typeOf).filter(Boolean).map((t) => t.key)
+      dst.reqNodes = ids(src.n)
+      dst.blocked = ids(src.x)
+      dst.owned = ids(src.o)
+      dst.budget = int(src.g)
     }
+    adopt(o.c)
   }
   function save() {
-    try { localStorage.setItem(STORE, JSON.stringify(state)) } catch (e) {}
     if (!ready()) return
     lastHash = '#s=' + encodeState()
     try { history.replaceState(null, '', lastHash) } catch (e) {}
+  }
+
+  // ---- arquivo: salvar no disco / abrir -------------------------------------
+  const fileMsg = (t, err) => { $('file-msg').textContent = t; $('file-msg').className = 'hint' + (err ? ' err' : '') }
+  function exportFile() {
+    const body = JSON.stringify({ app: 'rota-daevanion', exportedAt: new Date().toISOString(), ...state }, null, 2)
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([body], { type: 'application/json' }))
+    a.download = `rota-daevanion-${state.cls || 'planner'}-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+    fileMsg('Arquivo salvo na pasta de downloads. Ele guarda todas as classes que você configurou.')
+  }
+  async function importFile(file) {
+    try {
+      const raw = JSON.parse(await file.text())
+      if (raw.app !== 'rota-daevanion') throw new Error('este arquivo não é do Rota Daevanion')
+      const next = migrate(raw)
+      if (!next) throw new Error('o conteúdo não foi reconhecido')
+      if (next.future) throw new Error('o arquivo é de uma versão mais nova da página; recarregue e tente de novo')
+      delete next.app
+      delete next.exportedAt
+      state = next
+      for (const slug of Object.keys(PREP)) adopt(slug)
+      await open()
+      fileMsg('Arquivo aberto.')
+    } catch (e) {
+      fileMsg('Não foi possível abrir: ' + e.message + '.', true)
+    }
   }
 
   // ---- render ---------------------------------------------------------------
@@ -243,8 +411,8 @@
       t.onclick = () => pickRole(r)
       rbox.appendChild(t)
     }
-    $('need').hidden = ready()
-    $('need').textContent = !state.cls ? 'Escolha sua classe para começar.' : 'Agora escolha o papel: ele define os pesos padrão de cada tipo de node.'
+    $('need').hidden = ready() && !storageNote
+    $('need').textContent = storageNote || (!state.cls ? 'Escolha sua classe para começar.' : 'Agora escolha o papel: ele define os pesos padrão de cada tipo de node.')
     $('app').hidden = !ready()
   }
 
@@ -261,6 +429,38 @@
     }
   }
 
+  function renderSkills() {
+    const list = classSkills()
+    for (const [boxId, passive] of [['skills-active', false], ['skills-passive', true]]) {
+      const box = $(boxId)
+      box.innerHTML = ''
+      for (const s of list.filter((x) => isPassive(x.name) === passive)) {
+        const st = skillStat(s.name)
+        const id = 'sk-' + s.name.replace(/[^a-z0-9]+/gi, '-')
+        const label = document.createElement('label')
+        label.className = 'skill'
+        const hint = passive
+          ? `peso estimado ${fmt(passiveEstimate(s.name))}`
+          : st ? `na barra de ${Math.round(st.equipped * 100)}% · nível médio ${fmt(st.avg)}` : ''
+        label.innerHTML = `<input type="checkbox" id="${id}">${s.icon ? `<img src="${s.icon}" alt="">` : ''}<span><b></b><small>${hint}</small></span>`
+        label.querySelector('b').textContent = s.label
+        const cb = label.querySelector('input')
+        cb.checked = skillPicked(s.name)
+        cb.onchange = () => {
+          cc().skills[s.name] = cb.checked
+          cc().skillsDone = true
+          recomputeAll(); save(); renderAll()
+        }
+        box.appendChild(label)
+      }
+    }
+    const waiting = autoWanted() && !skillsSettled()
+    $('skills-note').hidden = !waiting
+    $('skills-block').classList.toggle('attention', waiting)
+    $('skills-from-char').hidden = !cc().char
+  }
+  const autoWanted = () => cc().pool > 0 || boards.some((b) => cfg(b).budget > 0)
+
   function abbr(n) {
     if (n.type === 'Start') return ''
     if (n.type === 'SkillLevel') return 'HAB'
@@ -270,14 +470,14 @@
     if (n.type === 'Start') return `<b>${n.name}</b> — ponto de partida, sem custo.`
     const req = requiredIds(b).has(n.id)
     const byType = cfg(b).reqTypes.includes(n.typeKey)
-    const flags = [cfg(b).blocked.includes(n.id) ? 'bloqueado' : '', (cfg(b).owned || []).includes(n.id) ? 'já aberto no personagem' : '', req ? (byType ? 'obrigatório pelo tipo' : 'obrigatório') : '',
+    const flags = [cfg(b).blocked.includes(n.id) ? 'bloqueado' : '', cfg(b).owned.includes(n.id) ? 'já aberto no personagem' : '', req ? (byType ? 'obrigatório pelo tipo' : 'obrigatório') : '',
       results[b.id]?.ok && results[b.id].ids.has(n.id) ? 'no caminho' : ''].filter(Boolean).join(', ')
     return `<b>${n.effects.join(' · ')}</b> — ${n.cost} ${n.cost > 1 ? 'pontos' : 'ponto'}, peso ${fmt(weightOf(b, n.typeKey))}` +
       ` · linha ${n.row - b.r0 + 1}, coluna ${n.col - b.c0 + 1}${flags ? ' · ' + flags : ''}`
   }
 
   function renderGrid() {
-    const b = active, r = results[b.id], req = requiredIds(b), blocked = new Set(cfg(b).blocked), owned = new Set(cfg(b).owned || [])
+    const b = active, r = results[b.id], req = requiredIds(b), blocked = new Set(cfg(b).blocked), owned = new Set(cfg(b).owned)
     const focused = document.activeElement?.dataset?.node
     const g = $('grid')
     g.innerHTML = ''
@@ -323,16 +523,21 @@
       $('res-nodes').textContent = $('res-weight').textContent = $('res-owned').textContent = '–'
       $('gains').innerHTML = ''
     } else {
-      const ownedSet = new Set(cfg(b).owned || [])
+      const ownedSet = new Set(cfg(b).owned)
       const fresh = [...r.ids].filter((id) => !ownedSet.has(id) && b.byId.get(id).type !== 'Start')
       $('res-points').textContent = r.points
       $('res-of').textContent = ownedSet.size ? 'pontos a gastar' : `de ${b.totalCost} pontos`
-      if (r.overBudget) {
+      if (autoWanted() && !skillsSettled()) {
+        badge.className = 'badge approx'
+        badge.textContent = 'Montagem automática esperando: escolha suas habilidades'
+      } else if (r.overBudget) {
         badge.className = 'badge err'
-        badge.textContent = `Os obrigatórios já custam ${r.requiredPoints}: aumente os pontos da montagem`
+        badge.textContent = r.pooled
+          ? `Os obrigatórios das árvores já custam ${r.poolRequired}: aumente o total de pontos`
+          : `Os obrigatórios já custam ${r.requiredPoints}: aumente os pontos da montagem`
       } else if (r.auto) {
         badge.className = 'badge approx'
-        badge.textContent = `Montagem automática (estimativa): ${r.points} de ${cfg(b).budget} pontos`
+        badge.textContent = r.pooled ? `Montagem automática (estimativa): ${r.points} pontos nesta árvore` : `Montagem automática (estimativa): ${r.points} de ${cfg(b).budget} pontos`
       } else {
         badge.className = 'badge' + (r.exact ? '' : ' approx')
         badge.textContent = r.exact ? 'Caminho ótimo' : 'Aproximado (mais de 13 obrigatórios)'
@@ -353,8 +558,9 @@
         ? [...sum].map(([k, x]) => `<li><span>${k}</span><span>+${fmt(x.v)}${x.pct}</span></li>`).join('')
         : '<li><span class="hint">Nada ainda. Marque um node ou um tipo como obrigatório.</span></li>'
     }
-    const total = boards.reduce((s, x) => s + (results[x.id]?.ok ? results[x.id].points : 0), 0)
-    $('res-total').textContent = total + ' pts'
+    const shared = boards.filter((x) => !isPvpBoard(x))
+    const sum = (list) => list.reduce((s, x) => s + (results[x.id]?.ok ? results[x.id].points : 0), 0)
+    $('res-total').textContent = `${sum(shared)} pts` + (boards.length > shared.length ? ` + ${sum(boards.filter(isPvpBoard))} de Azphel` : '')
     b.types.forEach((t, i) => {
       const el = $('got-' + b.id + '-' + i)
       if (el) el.textContent = (r.ok ? t.nodes.filter((n) => r.ids.has(n.id)).length : 0) + '/' + t.nodes.length
@@ -363,7 +569,7 @@
 
   function renderTypes() {
     const b = active
-    $('types-title').textContent = `Tipos de node · ${b.name} · ${ROLES[cc().role].name}`
+    $('types-title').textContent = `Tipos de node · ${b.name}`
     const body = $('types')
     body.innerHTML = ''
     let lastSkill = null
@@ -377,9 +583,9 @@
       const tr = document.createElement('tr')
       const color = { Rare: 'var(--rare)', Legend: 'var(--legend)', Unique: 'var(--unique)' }[t.grade] || 'var(--common)'
       tr.innerHTML =
-        `<td class="c"><input type="checkbox" id="rq-${b.id}-${i}" aria-label="Obrigatório: ${t.key}"></td>` +
-        `<td><label for="rq-${b.id}-${i}">${t.nodes[0].icon ? `<img class="ic" src="${t.nodes[0].icon}" alt="" style="border-color:${color}">` : `<span class="sw${t.skill ? ' skill' : ''}" style="border-color:${color}"></span>`}${t.key}<small>${t.nodes.length}× · ${t.cost} pt</small></label></td>` +
-        `<td class="r"><input class="num" type="number" step="0.1" min="0" id="w-${b.id}-${i}" aria-label="Peso: ${t.key}"></td>` +
+        `<td class="c"><input type="checkbox" id="rq-${b.id}-${i}" aria-label="Obrigatório: ${t.label}"></td>` +
+        `<td><label for="rq-${b.id}-${i}">${t.nodes[0].icon ? `<img class="ic" src="${t.nodes[0].icon}" alt="" style="border-color:${color}">` : `<span class="sw${t.skill ? ' skill' : ''}" style="border-color:${color}"></span>`}${t.label}<small>${t.nodes.length}× · ${t.cost} pt</small></label></td>` +
+        `<td class="r"><input class="num" type="number" step="0.1" min="0" id="w-${b.id}-${i}" aria-label="Peso: ${t.label}"></td>` +
         `<td class="r" id="got-${b.id}-${i}"></td>`
       body.appendChild(tr)
       const cb = $(`rq-${b.id}-${i}`), w = $(`w-${b.id}-${i}`)
@@ -407,46 +613,49 @@
       : 'Menos pontos primeiro; peso só desempata'
   }
 
-  // ---- JSON legível ---------------------------------------------------------
-  const nodeRef = (b, id) => { const n = b.byId.get(id); return `L${n.row - b.r0 + 1}C${n.col - b.c0 + 1}` }
-  function toJson() {
-    const out = { classe: classInfo().name, papel: ROLES[cc().role].name, toleranciaPontosPorPeso: state.lambda, arvores: {} }
-    for (const b of boards) {
-      out.arvores[b.name] = {
-        tipos: Object.fromEntries(b.types.map((t) => [t.key, { peso: weightOf(b, t.key), obrigatorio: cfg(b).reqTypes.includes(t.key) }])),
-        nodesObrigatorios: cfg(b).reqNodes.map((id) => nodeRef(b, id)),
-        nodesBloqueados: cfg(b).blocked.map((id) => nodeRef(b, id)),
-        pontosMontagemAutomatica: cfg(b).budget || 0,
-      }
-    }
-    return JSON.stringify(out, null, 2)
+  function renderAuto() {
+    const pvp = isPvpBoard(active)
+    $('pool').value = cc().pool || ''
+    $('budget').value = cfg(active).budget || ''
+    const pooled = cc().pool > 0 && !pvp
+    $('budget').disabled = pooled
+    const left = active.nodes.filter((n) => !cfg(active).owned.includes(n.id)).reduce((s, n) => s + n.cost, 0)
+    $('budget-max').textContent = pooled
+      ? 'Com o total das 4 árvores ligado, a divisão entre elas é automática.'
+      : `Completar o que falta desta árvore custa ${left} pontos.`
+    $('pool-row').hidden = pvp
+    $('pool-note').textContent = pvp ? 'Azphel usa pontos próprios (JvJ), fora do total das outras quatro árvores.' : ''
   }
-  /** Aplica o JSON na classe atual (classe e papel do JSON são só informativos). */
-  function fromJson(text) {
-    const src = JSON.parse(text)
-    const next = {}
-    for (const b of boards) {
-      const a = src.arvores?.[b.name]
-      const c = (next[b.id] = emptyBoard())
-      c.owned = cfg(b).owned || [] // o que veio do personagem não é mexido pelo JSON
-      if (!a) continue
-      c.budget = Math.max(0, Math.floor(+a.pontosMontagemAutomatica || 0))
-      for (const [key, v] of Object.entries(a.tipos || {})) {
-        if (!b.typeByKey.has(key)) throw new Error(`Tipo desconhecido em ${b.name}: "${key}"`)
-        if (isFinite(+v.peso) && +v.peso >= 0) c.weights[key] = +v.peso
-        if (v.obrigatorio) c.reqTypes.push(key)
-      }
-      const toId = (ref) => {
-        const m = /^L(\d+)C(\d+)$/i.exec(ref)
-        const n = m && b.nodes.find((x) => x.row - b.r0 + 1 === +m[1] && x.col - b.c0 + 1 === +m[2] && x.type !== 'Start')
-        if (!n) throw new Error(`Node inválido em ${b.name}: "${ref}"`)
-        return n.id
-      }
-      c.reqNodes = (a.nodesObrigatorios || []).map(toId)
-      c.blocked = (a.nodesBloqueados || []).map(toId)
-    }
-    cc().boards = next
-    state.lambda = Math.min(1, Math.max(0, +src.toleranciaPontosPorPeso || 0))
+
+  // ---- fontes de pontos -----------------------------------------------------
+  // Números do guia do MetaBot (lidos dos arquivos do jogo), por facção:
+  // https://metabot.gg/en/aion-2/guides/daevanion-guide
+  const LEVEL_POINTS = (lv) => (lv >= 12 ? Math.min(136, 4 * (Math.min(45, lv) - 11)) : 0)
+  const SOURCES = [
+    { key: 'quests', max: 58, each: 1 },
+    { key: 'dungeons', max: 61, each: 2 },
+    { key: 'festival', max: 50, each: 1 },
+    { key: 'nightmare', max: 50, each: 1 },
+    { key: 'other', max: 999, each: 1 },
+  ]
+  function sourcesTotals() {
+    const s = cc().sources
+    const earned = LEVEL_POINTS(s.level) + SOURCES.reduce((a, x) => a + int(s[x.key], x.max) * x.each, 0)
+    const spent = boards.filter((b) => !isPvpBoard(b)).reduce((a, b) => a + cfg(b).owned.reduce((x, id) => x + b.byId.get(id).cost, 0), 0)
+    return { earned, spent, free: Math.max(0, earned - spent) }
+  }
+  function renderSources() {
+    const s = cc().sources
+    $('src-level').value = s.level || ''
+    for (const x of SOURCES) $('src-' + x.key).value = s[x.key] || ''
+    const t = sourcesTotals()
+    $('src-level-pts').textContent = LEVEL_POINTS(s.level) + ' pts'
+    for (const x of SOURCES) $('src-' + x.key + '-pts').textContent = int(s[x.key], x.max) * x.each + ' pts'
+    $('src-earned').textContent = t.earned
+    $('src-spent').textContent = t.spent
+    $('src-free').textContent = t.free
+    $('src-use').textContent = `Usar ${t.free} pontos na montagem automática`
+    $('src-use').disabled = !t.free
   }
 
   // ---- ações ----------------------------------------------------------------
@@ -461,18 +670,89 @@
   function changed(b) {
     compute(b)
     save()
-    renderTabs(); renderGrid(); renderResult()
-    $('json').value = toJson()
+    renderTabs(); renderGrid(); renderResult(); renderAuto()
   }
   function renderAll() {
     renderChooser()
     if (!ready()) return
-    renderTabs(); renderGrid(); renderTypes(); renderResult(); renderLambda()
-    $('budget').value = cfg(active).budget || ''
-    $('budget-max').textContent = `Completar o que falta desta árvore custa ${active.nodes.filter((n) => !(cfg(active).owned || []).includes(n.id)).reduce((s, n) => s + n.cost, 0)} pontos.`
-    $('json').value = toJson()
-    renderChar()
+    renderTabs(); renderSkills(); renderGrid(); renderTypes(); renderResult(); renderLambda(); renderAuto(); renderSources(); renderChar()
   }
+  /** Carrega a classe atual (se houver) e redesenha tudo. */
+  async function open() {
+    boards = []
+    results = {}
+    renderChooser()
+    if (!state.cls) return
+    try {
+      boards = await loadClass(state.cls)
+    } catch (e) {
+      $('need').hidden = false
+      $('need').textContent = e.message
+      return
+    }
+    active = boards[0]
+    if (!cc().role) cc().role = classInfo().roles[0]
+    recomputeAll()
+    save()
+    renderAll()
+  }
+  function pickClass(slug) {
+    state.cls = slug
+    open()
+  }
+  function pickRole(r) {
+    cc().role = r
+    recomputeAll(); save(); renderAll()
+  }
+  const refresh = () => { recomputeAll(); save(); renderAll() }
+
+  $('mode-req').onclick = () => setMode('req')
+  $('mode-block').onclick = () => setMode('block')
+  function setMode(m) {
+    mode = m
+    $('mode-req').setAttribute('aria-pressed', m === 'req')
+    $('mode-block').setAttribute('aria-pressed', m === 'block')
+  }
+  $('clear').onclick = () => {
+    Object.assign(cfg(active), { reqTypes: [], reqNodes: [], blocked: [] })
+    refresh()
+  }
+  $('reset-weights').onclick = () => {
+    boards.forEach((b) => (cfg(b).weights = {}))
+    refresh()
+  }
+  $('goto-types').onclick = () => $('tipos').scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const debounced = (el, fn) => { clearTimeout(el._t); el._t = setTimeout(fn, 250) }
+  $('lambda').oninput = () => {
+    state.lambda = +$('lambda').value
+    renderLambda()
+    debounced($('lambda'), refresh)
+  }
+  $('pool').oninput = () => { cc().pool = int($('pool').value); debounced($('pool'), refresh) }
+  $('budget').oninput = () => { cfg(active).budget = int($('budget').value); debounced($('budget'), refresh) }
+  $('auto-off').onclick = () => { cc().pool = 0; boards.forEach((b) => (cfg(b).budget = 0)); refresh() }
+  $('skills-none').onclick = () => { cc().skillsDone = true; refresh() }
+  $('skills-from-char').onclick = () => {
+    for (const s of cc().char?.skills || []) if (s.cat !== 'Passive') cc().skills[s.name] = !!s.equip
+    for (const s of classSkills()) if (!isPassive(s.name) && cc().skills[s.name] === undefined) cc().skills[s.name] = false
+    cc().skillsDone = true
+    refresh()
+  }
+  $('src-level').oninput = () => { cc().sources.level = int($('src-level').value, 45); debounced($('src-level'), () => { save(); renderSources() }) }
+  for (const x of SOURCES) {
+    $('src-' + x.key).max = x.max
+    $('src-' + x.key).oninput = () => { cc().sources[x.key] = int($('src-' + x.key).value, x.max); debounced($('src-' + x.key), () => { save(); renderSources() }) }
+  }
+  $('src-use').onclick = () => { cc().pool = sourcesTotals().free; refresh(); $('pool').scrollIntoView({ behavior: 'smooth', block: 'center' }) }
+
+  const copy = (text, input, say) => {
+    const fallback = () => { input.hidden = false; input.value = text; input.select(); say('Selecionado. Use Ctrl+C para copiar.') }
+    navigator.clipboard?.writeText ? navigator.clipboard.writeText(text).then(() => say('Link copiado. Quem abrir vê esta mesma configuração.'), fallback) : fallback()
+  }
+  $('share').onclick = () => { save(); copy(location.origin + location.pathname + lastHash, $('share-url'), (t) => ($('share-msg').textContent = t)) }
+  $('file-save').onclick = exportFile
+  $('file-open').onclick = () => $('file-input').click()
+  $('file-input').onchange = () => { const f = $('file-input').files[0]; $('file-input').value = ''; if (f) importFile(f) }
 
   // ---- personagem (API do site oficial, via /api/char) ----------------------
   const REGIONS = { la: 'América do Sul', naw: 'América do Norte – Oeste', nae: 'América do Norte – Leste', eu: 'Europa', as: 'Ásia' }
@@ -527,17 +807,17 @@
       const prepared = await loadClass(slug)
       state.cls = slug
       const k = cc()
-      if (!k.role) k.role = classInfo().roles[0]
       k.char = { name: d.profile.name, level: d.profile.level, server: d.profile.server, skills: d.skills }
+      k.sources.level = int(d.profile.level, 45)
       let opened = 0
       for (const bd of prepared) {
-        const ids = (d.boards[bd.id] || []).filter((id) => bd.byId.has(id) && bd.byId.get(id).type !== 'Start')
-        ;(k.boards[bd.id] = k.boards[bd.id] || emptyBoard()).owned = ids
-        opened += ids.length
+        const got = ids(d.boards[bd.id]).filter((id) => bd.byId.has(id) && bd.byId.get(id).type !== 'Start')
+        ;(k.boards[bd.id] = k.boards[bd.id] || emptyBoard()).owned = got
+        opened += got.length
       }
       $('char-results').innerHTML = ''
       await open()
-      charMsg(`Importado: ${opened} nodes já abertos entram com custo zero.`)
+      charMsg(`Importado: ${opened} nodes já abertos entram com custo zero. O nível e os pontos já gastos foram para "Fontes de pontos".`)
     } catch (e) {
       charMsg('Não foi possível importar: ' + e.message + '. Dá para seguir marcando à mão.', true)
     }
@@ -550,92 +830,12 @@
   $('char-region').innerHTML = Object.entries(REGIONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')
   $('char-region').onchange = loadServers
   $('char-form').onsubmit = (e) => { e.preventDefault(); searchChar() }
-  $('char-skills').onclick = () => {
-    for (const b of boards) for (const t of b.types) if (t.skill) cfg(b).weights[t.key] = charSkillWeight(t.nodes[0].skill)
-    recomputeAll(); save(); renderAll()
-    charMsg('Pesos das habilidades ajustados pelo que o personagem usa e pelo nível de cada uma. Edite à vontade na tabela.')
-  }
   $('char-clear').onclick = () => {
     delete cc().char
     for (const b of boards) cfg(b).owned = []
-    recomputeAll(); save(); renderAll()
+    refresh()
     charMsg('Personagem removido.')
   }
-  $('budget').oninput = () => {
-    cfg(active).budget = Math.max(0, Math.floor(+$('budget').value || 0))
-    clearTimeout($('budget')._t)
-    $('budget')._t = setTimeout(() => changed(active), 250)
-  }
-  $('budget-off').onclick = () => { cfg(active).budget = 0; $('budget').value = ''; changed(active) }
-  /** Carrega a classe atual (se houver) e redesenha tudo. */
-  async function open() {
-    boards = []
-    results = {}
-    renderChooser()
-    if (!state.cls) return
-    try {
-      boards = await loadClass(state.cls)
-    } catch (e) {
-      $('need').hidden = false
-      $('need').textContent = e.message
-      return
-    }
-    active = boards[0]
-    if (cc().role && !classInfo().roles.includes(cc().role)) cc().role = classInfo().roles[0]
-    if (cc().role) recomputeAll()
-    save()
-    renderAll()
-  }
-  function pickClass(slug) {
-    state.cls = slug
-    const info = classInfo()
-    if (info.roles.length === 1 && !cc().role) cc().role = info.roles[0]
-    open()
-  }
-  function pickRole(r) {
-    cc().role = r
-    recomputeAll()
-    save()
-    renderAll()
-  }
-
-  $('mode-req').onclick = () => setMode('req')
-  $('mode-block').onclick = () => setMode('block')
-  function setMode(m) {
-    mode = m
-    $('mode-req').setAttribute('aria-pressed', m === 'req')
-    $('mode-block').setAttribute('aria-pressed', m === 'block')
-  }
-  $('clear').onclick = () => {
-    Object.assign(cfg(active), { reqTypes: [], reqNodes: [], blocked: [] })
-    compute(active); save(); renderAll()
-  }
-  $('reset-weights').onclick = () => {
-    boards.forEach((b) => (cfg(b).weights = {}))
-    recomputeAll(); save(); renderAll()
-  }
-  $('goto-types').onclick = () => $('tipos').scrollIntoView({ behavior: 'smooth', block: 'start' })
-  $('lambda').oninput = () => {
-    state.lambda = +$('lambda').value
-    renderLambda()
-    clearTimeout($('lambda')._t)
-    $('lambda')._t = setTimeout(() => { recomputeAll(); save(); renderAll() }, 200)
-  }
-  const copy = (text, input, say) => {
-    const fallback = () => { input.hidden = false; input.value = text; input.select(); say('Selecionado. Use Ctrl+C para copiar.') }
-    navigator.clipboard?.writeText ? navigator.clipboard.writeText(text).then(() => say('Copiado.'), fallback) : fallback()
-  }
-  $('share').onclick = () => {
-    save()
-    copy(location.origin + location.pathname + lastHash, $('share-url'), (t) => ($('share-msg').textContent = t === 'Copiado.' ? 'Link copiado. Quem abrir vê esta mesma configuração.' : t))
-  }
-  const msg = (t) => ($('json-msg').textContent = t)
-  $('json-apply').onclick = () => {
-    try { fromJson($('json').value); recomputeAll(); save(); renderAll(); msg('Aplicado.') }
-    catch (e) { msg('Não foi possível aplicar: ' + e.message) }
-  }
-  $('json-copy').onclick = () => copy($('json').value, $('json'), msg)
-  $('json-reset').onclick = () => { for (const b of boards) cc().boards[b.id] = { ...emptyBoard(), owned: cfg(b).owned || [] }; recomputeAll(); save(); renderAll(); msg('Padrão restaurado.') }
 
   // ---- início: o link (#s=...) tem prioridade sobre o que ficou salvo -------
   async function boot() {

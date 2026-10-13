@@ -234,34 +234,41 @@
   }
 
   /**
-   * Montagem automática. A partir da árvore base, repete: acha o caminho
-   * mais barato até cada node de fora, calcula ganho (soma dos pesos novos no
-   * caminho) e custo, e compra o de melhor ganho^alpha / custo que ainda cabe
-   * no orçamento. Roda com alguns alphas (mais guloso por eficiência ↔ mais
-   * disposto a ir longe por um node valioso) e fica com o maior peso total.
+   * Montagem automática. A partir da árvore base de cada board, repete: acha o
+   * caminho mais barato até cada node de fora, calcula ganho (soma dos pesos
+   * novos no caminho) e custo, e compra — entre todas as boards — o de melhor
+   * ganho^alpha / custo que ainda cabe no orçamento compartilhado. Roda com
+   * alguns alphas (mais guloso por eficiência ↔ mais disposto a ir longe por
+   * um node valioso) e fica com o maior peso total.
    * É heurística: o ótimo desse problema (árvore de maior prêmio com
    * orçamento) é NP-difícil.
+   *
+   * @param ctxs  [{ g, cost, value, picked }] — uma entrada por board
+   * @returns     um Set de índices por board, na mesma ordem
    */
-  function expand(g, cost, value, base, budget) {
-    const n = g.nodes.length
-    const total = value.reduce((a, b) => a + b, 0)
-    const eps = 0.5 / (total + 1)
-    const w = cost.map((c, i) => Math.max(MIN_WEIGHT, c - eps * value[i]))
-    let best = base
+  function expandMany(ctxs, budget) {
+    const ws = ctxs.map((c) => {
+      const total = c.value.reduce((a, b) => a + b, 0)
+      const eps = 0.5 / (total + 1)
+      return c.cost.map((x, i) => Math.max(MIN_WEIGHT, x - eps * c.value[i]))
+    })
+    let best = ctxs.map((c) => c.picked)
     let bestVal = -1
     let bestCost = Infinity
     for (const alpha of [0.75, 1, 1.5, 2]) {
-      const tree = new Set(base)
+      const trees = ctxs.map((c) => new Set(c.picked))
       let spent = 0
-      tree.forEach((v) => (spent += cost[v]))
-      for (;;) {
+      trees.forEach((tree, k) => tree.forEach((v) => (spent += ctxs[k].cost[v])))
+      const cached = ctxs.map(() => null) // melhor compra de cada board (refeita quando a board muda ou não cabe mais)
+      const bestPick = (k) => {
+        const { g, cost, value } = ctxs[k]
+        const tree = trees[k]
+        const n = g.nodes.length
         const dist = new Float64Array(n).fill(Infinity)
         const prev = new Int32Array(n).fill(-1)
         tree.forEach((v) => (dist[v] = 0))
-        relax(n, g.adj, w, dist, (u, v) => (prev[u] = v))
-        let pick = -1
-        let pickScore = 0
-        let pickCost = 0
+        relax(n, g.adj, ws[k], dist, (u, v) => (prev[u] = v))
+        const out = { node: -1, score: 0, cost: 0, prev }
         for (let u = 0; u < n; u++) {
           if (tree.has(u) || !isFinite(dist[u])) continue
           let gain = 0
@@ -272,20 +279,30 @@
           }
           if (gain <= 0 || spent + c > budget) continue
           const score = Math.pow(gain, alpha) / Math.max(c, 0.5)
-          if (score > pickScore) {
-            pickScore = score
-            pick = u
-            pickCost = c
+          if (score > out.score) {
+            out.score = score
+            out.node = u
+            out.cost = c
           }
         }
-        if (pick < 0) break
-        for (let v = pick; v >= 0 && !tree.has(v); v = prev[v]) tree.add(v)
-        spent += pickCost
+        return out
+      }
+      for (;;) {
+        let k = -1
+        for (let j = 0; j < ctxs.length; j++) {
+          if (!cached[j] || (cached[j].node >= 0 && spent + cached[j].cost > budget)) cached[j] = bestPick(j)
+          if (cached[j].node >= 0 && (k < 0 || cached[j].score > cached[k].score)) k = j
+        }
+        if (k < 0) break
+        const p = cached[k]
+        for (let v = p.node; v >= 0 && !trees[k].has(v); v = p.prev[v]) trees[k].add(v)
+        spent += p.cost
+        cached[k] = null
       }
       let val = 0
-      tree.forEach((v) => (val += value[v]))
+      trees.forEach((tree, k) => tree.forEach((v) => (val += ctxs[k].value[v])))
       if (val > bestVal + 1e-9 || (Math.abs(val - bestVal) <= 1e-9 && spent < bestCost)) {
-        best = tree
+        best = trees
         bestVal = val
         bestCost = spent
       }
@@ -293,16 +310,8 @@
     return best
   }
 
-  /**
-   * @param board       { nodes: [{ id, row, col, type, cost, ... }] }
-   * @param requiredIds ids dos nodes obrigatórios
-   * @param opts.valueOf(node) → valor de ataque do node (≥ 0)
-   * @param opts.lambda quantos pontos vale 1.0 de ataque (0 = só desempate)
-   * @param opts.blockedIds nodes proibidos
-   * @param opts.freeIds nodes já abertos (custo 0)
-   * @param opts.budget  pontos para gastar: liga a montagem automática
-   */
-  function solve(board, requiredIds, opts) {
+  /** Resolve só a parte obrigatória de uma board; devolve o contexto pro resto. */
+  function base(board, requiredIds, opts) {
     const o = opts || {}
     const valueOf = o.valueOf || (() => 0)
     const g = buildGraph(board, o.blockedIds)
@@ -328,23 +337,17 @@
       if (i !== g.start) terms.push(i)
     }
 
-    const exact = terms.length <= EXACT_LIMIT
+    const exact = terms.length <= EXACT_LIMIT && !o.forceHeuristic
     let picked
     if (terms.length === 0) picked = new Set([g.start])
-    else if (o.forceHeuristic) picked = solveHeuristic(g, w, terms, 24)
     else picked = exact ? solveExact(g, w, terms) : solveHeuristic(g, w, terms, 24)
     if (!picked) return { ok: false, reason: 'unreachable' }
-
-    // montagem automática: gasta o que sobrar do orçamento nos melhores pesos
-    let auto = false
-    let overBudget = false
     const requiredPoints = [...picked].reduce((a, v) => a + cost[v], 0)
-    if (o.budget > 0) {
-      auto = true
-      if (requiredPoints > o.budget) overBudget = true
-      else picked = expand(g, cost, value, picked, o.budget)
-    }
+    return { ok: true, g, cost, value, picked, exact, requiredPoints }
+  }
 
+  function finish(ctx, picked, extra) {
+    const { g, cost, value } = ctx
     // ordem de desbloqueio: busca em largura a partir do início, dentro da árvore
     const order = []
     const seen = new Set([g.start])
@@ -359,15 +362,47 @@
         }
       }
     }
-
     let points = 0
     let attack = 0
     picked.forEach((v) => {
       points += cost[v]
       attack += value[v]
     })
-    return { ok: true, exact: exact && !o.forceHeuristic, auto, overBudget, requiredPoints, ids: new Set(order), order, points, attack }
+    return { ok: true, exact: ctx.exact, auto: false, overBudget: false, requiredPoints: ctx.requiredPoints, ids: new Set(order), order, points, attack, ...extra }
   }
 
-  return { solve, buildGraph, EXACT_LIMIT }
+  /**
+   * @param board       { nodes: [{ id, row, col, type, cost, ... }] }
+   * @param requiredIds ids dos nodes obrigatórios
+   * @param opts.valueOf(node) → peso do node (≥ 0)
+   * @param opts.lambda quantos pontos vale 1.0 de peso (0 = só desempate)
+   * @param opts.blockedIds nodes proibidos
+   * @param opts.freeIds nodes já abertos (custo 0)
+   * @param opts.budget  pontos para gastar: liga a montagem automática
+   */
+  function solve(board, requiredIds, opts) {
+    const ctx = base(board, requiredIds, opts)
+    if (!ctx.ok) return ctx
+    const budget = (opts && opts.budget) || 0
+    if (!(budget > 0)) return finish(ctx, ctx.picked)
+    if (ctx.requiredPoints > budget) return finish(ctx, ctx.picked, { auto: true, overBudget: true })
+    return finish(ctx, expandMany([ctx], budget)[0], { auto: true })
+  }
+
+  /**
+   * Várias boards dividindo o mesmo orçamento de pontos.
+   * @param items [{ board, requiredIds, opts }]
+   * @returns     um resultado por item, na mesma ordem
+   */
+  function solveMany(items, budget) {
+    const ctxs = items.map((it) => base(it.board, it.requiredIds, it.opts))
+    const good = ctxs.filter((c) => c.ok)
+    const required = good.reduce((a, c) => a + c.requiredPoints, 0)
+    const over = required > budget
+    const trees = over ? good.map((c) => c.picked) : expandMany(good, budget)
+    let k = 0
+    return ctxs.map((c) => (c.ok ? finish(c, trees[k++], { auto: true, overBudget: over, poolRequired: required }) : c))
+  }
+
+  return { solve, solveMany, buildGraph, EXACT_LIMIT }
 })

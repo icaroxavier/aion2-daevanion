@@ -118,6 +118,16 @@ textarea { width: 100%; min-height: 180px; background: var(--bg); border: 1px so
 .btn { background: var(--cell); border: 1px solid var(--line); border-radius: 4px; padding: 5px 12px; cursor: pointer; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 details summary { cursor: pointer; }
+h3 { font-size: 13px; font-weight: 600; margin: 0; }
+.skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px 14px; }
+.skill { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 0; }
+.skill img { width: 28px; height: 28px; border-radius: 50%; flex: none; }
+.skill span { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.skill b { font-weight: 500; }
+.skill small, td > small { color: var(--muted); font-size: 12px; }
+td > small { display: block; margin: 0; }
+.block.attention { border-color: var(--warn); }
+.field { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .chooser { flex-direction: row; flex-wrap: wrap; gap: 14px 32px; }
 .pick { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .app { display: flex; flex-direction: column; gap: 16px; }
@@ -136,7 +146,7 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
   </div>
   <div class="block">
     <h2>Importar personagem (opcional)</h2>
-    <p class="hint">Busca no site oficial do AION 2 (servidores globais) e traz a classe, os nodes que você já abriu e as habilidades que você usa. É uma consulta não oficial e pode falhar; se falhar, é só seguir escolhendo à mão.</p>
+    <p class="hint">Busca no site oficial do AION 2 (servidores globais) e traz a classe, o nível, os nodes que você já abriu e as habilidades da sua barra. É uma consulta não oficial e pode falhar; se falhar, é só seguir escolhendo à mão.</p>
     <form class="charform" id="char-form">
       <select id="char-region" aria-label="Região"></select>
       <select id="char-server" aria-label="Servidor"><option value="">Todos os servidores</option></select>
@@ -147,7 +157,6 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
     <div class="tabs" id="char-results"></div>
     <div class="row" id="char-current" hidden>
       <strong id="char-who"></strong>
-      <button type="button" class="btn" id="char-skills">Usar minhas habilidades nos pesos</button>
       <button type="button" class="link" id="char-clear">Remover personagem</button>
     </div>
   </div>
@@ -156,8 +165,26 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
   <div id="app" class="app" hidden>
   <div class="row">
     <button type="button" class="btn" id="share">Copiar link desta configuração</button>
-    <span id="share-msg" class="hint">O endereço da página já carrega classe, papel, pesos e obrigatórios.</span>
+    <button type="button" class="btn" id="file-save">Salvar em arquivo</button>
+    <button type="button" class="btn" id="file-open">Abrir arquivo</button>
+    <input type="file" id="file-input" accept="application/json,.json" hidden>
     <input id="share-url" class="url" readonly hidden aria-label="Link desta configuração">
+  </div>
+  <p class="hint" id="share-msg">Nada fica guardado no navegador: o endereço da página carrega a configuração, e o arquivo guarda tudo no seu disco.</p>
+  <p class="hint" id="file-msg" role="status"></p>
+
+  <div class="block" id="skills-block">
+    <h2>Minhas habilidades</h2>
+    <p class="hint">Marque as ativas que importam para você: cada +1 nível delas passa a valer 10 (ajustável na tabela de pesos). As passivas já entram marcadas, com peso estimado pelo quanto jogadores nível 45 da classe investem nelas; desmarque as que não interessam.</p>
+    <p class="hint err" id="skills-note" hidden>A montagem automática está esperando: marque ao menos uma ativa, ou diga que não quer priorizar nenhuma.</p>
+    <h3>Ativas</h3>
+    <div class="skills" id="skills-active"></div>
+    <h3>Passivas</h3>
+    <div class="skills" id="skills-passive"></div>
+    <div class="row">
+      <button type="button" class="btn" id="skills-from-char" hidden>Marcar as ativas da barra do meu personagem</button>
+      <button type="button" class="link" id="skills-none">Não quero priorizar nenhuma ativa</button>
+    </div>
   </div>
   <div class="tabs" id="tabs" role="tablist"></div>
 
@@ -198,16 +225,22 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
       </div>
       <div class="block">
         <h2>Montagem automática</h2>
-        <label for="budget">Pontos para gastar nesta árvore</label>
-        <div class="row">
-          <input class="num" type="number" id="budget" min="0" step="1" placeholder="desligada" style="width:110px">
-          <button type="button" class="link" id="budget-off">Desligar</button>
+        <div id="pool-row" class="field">
+          <label for="pool">Total de pontos para as 4 árvores</label>
+          <input class="num" type="number" id="pool" min="0" step="1" placeholder="desligado" style="width:110px">
         </div>
+        <div class="field">
+          <label for="budget">Ou pontos só para esta árvore</label>
+          <input class="num" type="number" id="budget" min="0" step="1" placeholder="desligado" style="width:110px">
+        </div>
+        <button type="button" class="link" id="auto-off" style="align-self:flex-start">Desligar a montagem automática</button>
+        <p class="hint">A página primeiro liga os obrigatórios e depois gasta o resto nos nodes de maior peso por ponto. Nezekan, Zikel, Vaizel e Triniel dividem os mesmos pontos. <span id="budget-max"></span> <span id="pool-note"></span></p>
+      </div>
         <p class="hint">Com um valor aqui, a página primeiro liga os obrigatórios e depois gasta o resto nos nodes de maior peso por ponto. <span id="budget-max"></span></p>
       </div>
       <div class="block" id="tipos">
         <h2 id="types-title">Tipos de node</h2>
-        <p class="hint">Os pesos começam no padrão do papel escolhido, na escala em que 1 = um node comum de Ataque +3; os nodes únicos (%) valem de 16 a 35 pelo dano estimado, e as habilidades valem até 10 conforme o uso entre jogadores nível 45 da classe. O peso diz o quanto você quer aquele tipo no caminho (0 = indiferente). “Obrigatório” força pegar todos os nodes daquele tipo nesta árvore. Para obrigar só um node específico, clique nele na board.</p>
+        <p class="hint">Os pesos começam no padrão do papel escolhido, na escala em que 1 = um node comum de Ataque +3; os nodes únicos (%) valem de 16 a 35 pelo dano estimado. Os pesos das habilidades vêm da seção “Minhas habilidades”. O peso diz o quanto você quer aquele tipo no caminho (0 = indiferente). “Obrigatório” força pegar todos os nodes daquele tipo nesta árvore. Para obrigar só um node específico, clique nele na board.</p>
         <button type="button" class="link" id="reset-weights" style="align-self:flex-start">Voltar aos pesos padrão do papel</button>
         <div class="tablewrap scrolly">
           <table>
@@ -230,17 +263,30 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
     </div>
   </div>
 
-  <details class="block">
-    <summary><h2 style="display:inline">Configuração em JSON</h2></summary>
-    <p class="hint">Mesma configuração da tela, para guardar, editar à mão ou compartilhar. Edite e clique em Aplicar.</p>
-    <textarea id="json" spellcheck="false" aria-label="Configuração em JSON"></textarea>
-    <div class="row">
-      <button type="button" class="btn" id="json-apply">Aplicar</button>
-      <button type="button" class="btn" id="json-copy">Copiar</button>
-      <button type="button" class="btn" id="json-reset">Restaurar padrão</button>
-      <span id="json-msg" class="hint"></span>
+  <div class="block">
+    <h2>Fontes de pontos de Daevanion</h2>
+    <p class="hint">Informe o que você já pegou para saber quantos pontos tem. O nível e os pontos já gastos vêm do personagem importado; missões, masmorras e lojas o site oficial não informa, então são preenchidos à mão. Os tetos são por facção.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Fonte</th><th class="r">Feito</th><th class="r">Máximo</th><th class="r">Pontos</th></tr></thead>
+        <tbody>
+          <tr><td><label for="src-level">Nível do personagem</label><small>4 por nível a partir do 12</small></td><td class="r"><input class="num" type="number" id="src-level" min="0" max="45"></td><td class="r">45</td><td class="r" id="src-level-pts"></td></tr>
+          <tr><td><label for="src-quests">Missões regionais</label><small>1 cada; algumas em cadeia dão 2</small></td><td class="r"><input class="num" type="number" id="src-quests" min="0"></td><td class="r">58</td><td class="r" id="src-quests-pts"></td></tr>
+          <tr><td><label for="src-dungeons">Masmorras seladas</label><small>2 por masmorra concluída</small></td><td class="r"><input class="num" type="number" id="src-dungeons" min="0"></td><td class="r">61</td><td class="r" id="src-dungeons-pts"></td></tr>
+          <tr><td><label for="src-festival">Loja do Festival</label><small>cristais comprados</small></td><td class="r"><input class="num" type="number" id="src-festival" min="0"></td><td class="r">50</td><td class="r" id="src-festival-pts"></td></tr>
+          <tr><td><label for="src-nightmare">Loja do Pesadelo</label><small>cristais comprados</small></td><td class="r"><input class="num" type="number" id="src-nightmare" min="0"></td><td class="r">50</td><td class="r" id="src-nightmare-pts"></td></tr>
+          <tr><td><label for="src-other">Outros</label><small>fragmentos convertidos, eventos</small></td><td class="r"><input class="num" type="number" id="src-other" min="0"></td><td class="r">–</td><td class="r" id="src-other-pts"></td></tr>
+        </tbody>
+      </table>
     </div>
-  </details>
+    <dl class="kv" style="max-width:320px">
+      <dt>Pontos obtidos</dt><dd id="src-earned">0</dd>
+      <dt>Já gastos (nodes abertos nas 4 árvores)</dt><dd id="src-spent">0</dd>
+      <dt>Disponíveis</dt><dd id="src-free">0</dd>
+    </dl>
+    <div class="row"><button type="button" class="btn" id="src-use">Usar na montagem automática</button></div>
+    <p class="hint">Nível, missões, masmorras e lojas somam 416 dos 570 pontos das quatro árvores; o resto vem de fragmentos convertidos (repetível). Azphel usa pontos próprios, vindos do Abismo, arena, campos de batalha e Monólito. Fonte dos números: guia do MetaBot, lido dos arquivos do jogo. Não há lista pública missão a missão, por isso aqui é só a contagem.</p>
+  </div>
 
   </div>
 
