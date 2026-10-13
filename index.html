@@ -10,7 +10,7 @@
 :root {
   --bg: #10131c; --panel: #171c29; --cell: #1e2434; --line: #2b3347;
   --fg: #e8e6df; --muted: #8f97ab;
-  --accent: #5ec8d8; --on-accent: #06242a; --path: #26505f;
+  --accent: #5ec8d8; --on-accent: #06242a; --path: #26505f; --owned: #454d63;
   --common: #7c8499; --rare: #4fbf6b; --legend: #4f8fe6; --unique: #e0a53a;
   --warn: #e0a53a; --bad: #e06a5a;
   --display: 'Cinzel', 'Trajan Pro', Georgia, serif;
@@ -21,7 +21,7 @@
   :root:not([data-theme="dark"]) {
     --bg: #f1f3f7; --panel: #ffffff; --cell: #e8ecf3; --line: #cdd4e0;
     --fg: #1a2030; --muted: #5a6376;
-    --accent: #0c7d90; --on-accent: #ffffff; --path: #b5e0e8;
+    --accent: #0c7d90; --on-accent: #ffffff; --path: #b5e0e8; --owned: #b9c0cf;
     --common: #8a92a5; --rare: #2f9a4c; --legend: #2f6fcf; --unique: #b87f12;
     --warn: #a56a00; --bad: #c0392b;
     color-scheme: light;
@@ -30,7 +30,7 @@
 :root[data-theme="light"] {
   --bg: #f1f3f7; --panel: #ffffff; --cell: #e8ecf3; --line: #cdd4e0;
   --fg: #1a2030; --muted: #5a6376;
-  --accent: #0c7d90; --on-accent: #ffffff; --path: #b5e0e8;
+  --accent: #0c7d90; --on-accent: #ffffff; --path: #b5e0e8; --owned: #b9c0cf;
   --common: #8a92a5; --rare: #2f9a4c; --legend: #2f6fcf; --unique: #b87f12;
   --warn: #a56a00; --bad: #c0392b;
   color-scheme: light;
@@ -71,6 +71,12 @@ button, input, textarea { font: inherit; color: inherit; }
 .cell.blocked { opacity: .4; background: repeating-linear-gradient(45deg, var(--cell) 0 4px, var(--bad) 4px 5px); }
 .cell img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: .4; }
 .cell.path img, .cell.req img { opacity: 1; }
+.cell.owned { background: var(--owned); color: var(--fg); }
+.cell.owned img { opacity: .75; filter: grayscale(.6); }
+.hint.err { color: var(--bad); }
+select, input.txt { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; min-width: 0; }
+.charform { display: flex; flex-wrap: wrap; gap: 8px; }
+.charform input.txt { flex: 1 1 160px; }
 .cell.skill.path { box-shadow: 0 0 0 2px var(--accent); }
 td img.ic { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--common); margin-right: 8px; vertical-align: middle; object-fit: cover; }
 .gap { aspect-ratio: 1; }
@@ -128,6 +134,23 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
     <div class="pick"><h2>Classe</h2><div class="tabs" id="classes"></div></div>
     <div class="pick" id="role-pick" hidden><h2>Papel</h2><div class="tabs" id="roles"></div></div>
   </div>
+  <div class="block">
+    <h2>Importar personagem (opcional)</h2>
+    <p class="hint">Busca no site oficial do AION 2 (servidores globais) e traz a classe, os nodes que você já abriu e as habilidades que você usa. É uma consulta não oficial e pode falhar; se falhar, é só seguir escolhendo à mão.</p>
+    <form class="charform" id="char-form">
+      <select id="char-region" aria-label="Região"></select>
+      <select id="char-server" aria-label="Servidor"><option value="">Todos os servidores</option></select>
+      <input class="txt" id="char-name" type="search" placeholder="Nome do personagem" aria-label="Nome do personagem" maxlength="30">
+      <button type="submit" class="btn">Buscar</button>
+    </form>
+    <p class="hint" id="char-msg" role="status"></p>
+    <div class="tabs" id="char-results"></div>
+    <div class="row" id="char-current" hidden>
+      <strong id="char-who"></strong>
+      <button type="button" class="btn" id="char-skills">Usar minhas habilidades nos pesos</button>
+      <button type="button" class="link" id="char-clear">Remover personagem</button>
+    </div>
+  </div>
   <p class="hint" id="need">Escolha sua classe para começar.</p>
 
   <div id="app" class="app" hidden>
@@ -153,6 +176,7 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
       <div class="legend">
         <span><i style="background:var(--accent);border-color:var(--accent)"></i>obrigatório</span>
         <span><i style="background:var(--path)"></i>no caminho</span>
+        <span><i style="background:var(--owned)"></i>já aberto</span>
         <span><i style="border-color:var(--rare)"></i>raro (2)</span>
         <span><i style="border-color:var(--legend)"></i>lendário (3)</span>
         <span><i style="border-color:var(--unique)"></i>único (4)</span>
@@ -166,14 +190,24 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
         <div class="big"><strong id="res-points">0</strong><span id="res-of">pontos</span></div>
         <span class="badge" id="res-badge">ótimo</span>
         <dl class="kv">
-          <dt>Nodes no caminho</dt><dd id="res-nodes">0</dd>
+          <dt>Nodes novos</dt><dd id="res-nodes">0</dd>
+          <dt>Já abertos no personagem</dt><dd id="res-owned">0</dd>
           <dt>Peso somado</dt><dd id="res-weight">0</dd>
           <dt>Todas as árvores</dt><dd id="res-total">0 pts</dd>
         </dl>
       </div>
+      <div class="block">
+        <h2>Montagem automática</h2>
+        <label for="budget">Pontos para gastar nesta árvore</label>
+        <div class="row">
+          <input class="num" type="number" id="budget" min="0" step="1" placeholder="desligada" style="width:110px">
+          <button type="button" class="link" id="budget-off">Desligar</button>
+        </div>
+        <p class="hint">Com um valor aqui, a página primeiro liga os obrigatórios e depois gasta o resto nos nodes de maior peso por ponto. <span id="budget-max"></span></p>
+      </div>
       <div class="block" id="tipos">
         <h2 id="types-title">Tipos de node</h2>
-        <p class="hint">Os pesos começam no padrão do papel escolhido, na escala em que 1 = um node comum de Ataque +3; os nodes únicos (%) valem de 16 a 35 pelo dano estimado. O peso diz o quanto você quer aquele tipo no caminho (0 = indiferente). “Obrigatório” força pegar todos os nodes daquele tipo nesta árvore. Para obrigar só um node específico, clique nele na board.</p>
+        <p class="hint">Os pesos começam no padrão do papel escolhido, na escala em que 1 = um node comum de Ataque +3; os nodes únicos (%) valem de 16 a 35 pelo dano estimado, e as habilidades valem até 10 conforme o uso entre jogadores nível 45 da classe. O peso diz o quanto você quer aquele tipo no caminho (0 = indiferente). “Obrigatório” força pegar todos os nodes daquele tipo nesta árvore. Para obrigar só um node específico, clique nele na board.</p>
         <button type="button" class="link" id="reset-weights" style="align-self:flex-start">Voltar aos pesos padrão do papel</button>
         <div class="tablewrap scrolly">
           <table>
@@ -184,7 +218,7 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
       </div>
 
       <div class="block">
-        <h2>O que este caminho dá</h2>
+        <h2>O que os nodes novos dão</h2>
         <ul class="gains" id="gains"></ul>
       </div>
       <div class="block">
@@ -213,5 +247,6 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
   <p class="hint">Dados das boards: planner do GameWith (base nas páginas oficiais do AION2), global, 06/10/2026. O custo por node é estimado pela raridade (1/2/3/4). Até 13 obrigatórios por árvore o resultado é o ótimo exato; acima disso é uma aproximação.</p>
 </div>
 
+<script src="data/skill-stats.js"></script>
 <script src="solver.js"></script>
 <script src="app.js"></script>

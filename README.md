@@ -41,3 +41,25 @@ Nodes, posições e efeitos vêm do planner do GameWith, que usa as páginas
 oficiais de personagem do AION2 (versão global, 06/10/2026). O custo por node é
 estimado pela raridade (1/2/3/4). Ícones e nomes pertencem à NCSOFT; este é um
 projeto de fã, sem vínculo com a NCSOFT ou o GameWith.
+
+## Importar personagem
+
+`api/char.js` é um proxy (função serverless da Vercel) para a API do site
+oficial do AION2 — a mesma da página Character Info, sem login. Busca por nome,
+região e servidor (somente servidores globais) e traz a classe, os nodes já
+abertos (entram com custo zero) e as habilidades do personagem. A API não é
+documentada e pode falhar a qualquer momento; a página só avisa e segue.
+
+## Montagem automática
+
+Com "pontos para gastar" preenchido, a página liga os obrigatórios e gasta o
+resto nos nodes de maior peso por ponto (heurística gulosa por caminho).
+
+## Pesos das habilidades
+
+`data/skill-stats.js` (gerado por `tools/fetch-skill-stats.js`) agrega, de uma
+amostra de personagens nível 45 por classe, o % com cada skill na barra e o
+nível médio. Isso vira o peso padrão de cada node de habilidade. Só números
+agregados são guardados.
+
+`node tools/dev-server.js` sobe a página com a função `/api/char` localmente.

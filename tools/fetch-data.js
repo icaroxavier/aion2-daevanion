@@ -94,6 +94,7 @@ async function build(slug) {
           // `stats` (EN) é a chave estável usada nos pesos; `effects` (PT) é o texto exibido
           stats: n.type === 'Stat' ? n.effects.en.map((e) => e.replace(/\s*\+[\d.]+%?$/, '')) : [],
           effects: n.effects.pt.filter(Boolean),
+          ...(n.type === 'SkillLevel' ? { skill: skillName(n) } : {}),
           ...(ic ? { icon: 'icons/' + ic.file } : {}),
         }
       }),

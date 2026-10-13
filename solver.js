@@ -234,11 +234,73 @@
   }
 
   /**
+   * Montagem automática. A partir da árvore base, repete: acha o caminho
+   * mais barato até cada node de fora, calcula ganho (soma dos pesos novos no
+   * caminho) e custo, e compra o de melhor ganho^alpha / custo que ainda cabe
+   * no orçamento. Roda com alguns alphas (mais guloso por eficiência ↔ mais
+   * disposto a ir longe por um node valioso) e fica com o maior peso total.
+   * É heurística: o ótimo desse problema (árvore de maior prêmio com
+   * orçamento) é NP-difícil.
+   */
+  function expand(g, cost, value, base, budget) {
+    const n = g.nodes.length
+    const total = value.reduce((a, b) => a + b, 0)
+    const eps = 0.5 / (total + 1)
+    const w = cost.map((c, i) => Math.max(MIN_WEIGHT, c - eps * value[i]))
+    let best = base
+    let bestVal = -1
+    let bestCost = Infinity
+    for (const alpha of [0.75, 1, 1.5, 2]) {
+      const tree = new Set(base)
+      let spent = 0
+      tree.forEach((v) => (spent += cost[v]))
+      for (;;) {
+        const dist = new Float64Array(n).fill(Infinity)
+        const prev = new Int32Array(n).fill(-1)
+        tree.forEach((v) => (dist[v] = 0))
+        relax(n, g.adj, w, dist, (u, v) => (prev[u] = v))
+        let pick = -1
+        let pickScore = 0
+        let pickCost = 0
+        for (let u = 0; u < n; u++) {
+          if (tree.has(u) || !isFinite(dist[u])) continue
+          let gain = 0
+          let c = 0
+          for (let v = u; v >= 0 && !tree.has(v); v = prev[v]) {
+            gain += value[v]
+            c += cost[v]
+          }
+          if (gain <= 0 || spent + c > budget) continue
+          const score = Math.pow(gain, alpha) / Math.max(c, 0.5)
+          if (score > pickScore) {
+            pickScore = score
+            pick = u
+            pickCost = c
+          }
+        }
+        if (pick < 0) break
+        for (let v = pick; v >= 0 && !tree.has(v); v = prev[v]) tree.add(v)
+        spent += pickCost
+      }
+      let val = 0
+      tree.forEach((v) => (val += value[v]))
+      if (val > bestVal + 1e-9 || (Math.abs(val - bestVal) <= 1e-9 && spent < bestCost)) {
+        best = tree
+        bestVal = val
+        bestCost = spent
+      }
+    }
+    return best
+  }
+
+  /**
    * @param board       { nodes: [{ id, row, col, type, cost, ... }] }
    * @param requiredIds ids dos nodes obrigatórios
    * @param opts.valueOf(node) → valor de ataque do node (≥ 0)
    * @param opts.lambda quantos pontos vale 1.0 de ataque (0 = só desempate)
    * @param opts.blockedIds nodes proibidos
+   * @param opts.freeIds nodes já abertos (custo 0)
+   * @param opts.budget  pontos para gastar: liga a montagem automática
    */
   function solve(board, requiredIds, opts) {
     const o = opts || {}
@@ -253,7 +315,11 @@
       const total = value.reduce((a, b) => a + b, 0)
       t = 0.5 / (total + 1)
     }
-    const w = g.nodes.map((n, i) => (i === g.start ? 0 : Math.max(MIN_WEIGHT, n.cost - t * value[i])))
+    // nodes já abertos pelo personagem não custam pontos nem contam peso
+    const free = o.freeIds || new Set()
+    const cost = g.nodes.map((n, i) => (i === g.start || free.has(n.id) ? 0 : n.cost))
+    for (let i = 0; i < value.length; i++) if (cost[i] === 0) value[i] = 0
+    const w = g.nodes.map((n, i) => (i === g.start ? 0 : cost[i] === 0 ? MIN_WEIGHT : Math.max(MIN_WEIGHT, cost[i] - t * value[i])))
 
     const terms = []
     for (const id of new Set(requiredIds)) {
@@ -268,6 +334,16 @@
     else if (o.forceHeuristic) picked = solveHeuristic(g, w, terms, 24)
     else picked = exact ? solveExact(g, w, terms) : solveHeuristic(g, w, terms, 24)
     if (!picked) return { ok: false, reason: 'unreachable' }
+
+    // montagem automática: gasta o que sobrar do orçamento nos melhores pesos
+    let auto = false
+    let overBudget = false
+    const requiredPoints = [...picked].reduce((a, v) => a + cost[v], 0)
+    if (o.budget > 0) {
+      auto = true
+      if (requiredPoints > o.budget) overBudget = true
+      else picked = expand(g, cost, value, picked, o.budget)
+    }
 
     // ordem de desbloqueio: busca em largura a partir do início, dentro da árvore
     const order = []
@@ -287,10 +363,10 @@
     let points = 0
     let attack = 0
     picked.forEach((v) => {
-      points += g.nodes[v].cost
+      points += cost[v]
       attack += value[v]
     })
-    return { ok: true, exact: exact && !o.forceHeuristic, ids: new Set(order), order, points, attack }
+    return { ok: true, exact: exact && !o.forceHeuristic, auto, overBudget, requiredPoints, ids: new Set(order), order, points, attack }
   }
 
   return { solve, buildGraph, EXACT_LIMIT }

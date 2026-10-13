@@ -6,8 +6,9 @@
 
   // ---- classes e papéis -----------------------------------------------------
   const CLASSES = [
-    { slug: 'gladiator', name: 'Gladiador', roles: ['dps', 'tank'] },
-    { slug: 'templar', name: 'Templário', roles: ['dps', 'tank'] },
+    // por ora só DPS (Tank e Healer ficam para depois)
+    { slug: 'gladiator', name: 'Gladiador', roles: ['dps'] },
+    { slug: 'templar', name: 'Templário', roles: ['dps'] },
     { slug: 'ranger', name: 'Arqueiro', roles: ['dps'] },
     { slug: 'assassin', name: 'Assassino', roles: ['dps'] },
     { slug: 'elementalist', name: 'Espiritualista', roles: ['dps'] },
@@ -100,13 +101,38 @@
   let active = null
   let mode = 'req'
   let results = {}
-  const emptyBoard = () => ({ weights: {}, reqTypes: [], reqNodes: [], blocked: [] })
+  // owned = nodes já abertos (importados do personagem); budget = pontos da montagem automática
+  const emptyBoard = () => ({ weights: {}, reqTypes: [], reqNodes: [], blocked: [], owned: [], budget: 0 })
   const cc = () => (state.classes[state.cls] = state.classes[state.cls] || { role: null, boards: {} })
   const cfg = (b) => (cc().boards[b.id] = cc().boards[b.id] || emptyBoard())
   const classInfo = () => CLASSES.find((c) => c.slug === state.cls)
   const ready = () => !!(state.cls && cc().role && boards.length)
 
+  // Peso padrão de um node de habilidade (+1 nível), pela amostra de personagens
+  // nível 45 da classe (data/skill-stats.js): quanto a skill é usada (ativa: %
+  // com ela na barra; passiva: % que aprendeu) × quanto investem nela (nível
+  // médio relativo ao da skill mais upada, ao quadrado). SKILL_BASE é chute
+  // nosso: +1 nível numa skill principal ≈ 0,3% de dano ≈ 10 nodes de ataque.
+  const SKILL_BASE = 10
+  const round1 = (x) => Math.round(x * 10) / 10
+  function skillWeight(name) {
+    const st = (window.DAEVANION_SKILL_STATS || {})[state.cls]
+    const s = st && st.skills[name]
+    if (!s) return 0
+    const top = (st._top = st._top || Math.max(...Object.values(st.skills).map((x) => x.avg)))
+    const use = s.cat === 'Passive' ? s.learned : s.equipped
+    return round1(SKILL_BASE * use * Math.pow(s.avg / top, 2))
+  }
+  /** Mesmo cálculo, mas com as skills do personagem importado. */
+  function charSkillWeight(name) {
+    const list = cc().char?.skills || []
+    const s = list.find((x) => x.name === name)
+    if (!s || !(s.cat === 'Passive' || s.equip)) return 0
+    const top = Math.max(1, ...list.map((x) => x.level))
+    return round1(SKILL_BASE * Math.pow(s.level / top, 2))
+  }
   const roleWeight = (t) => {
+    if (t.skill) return skillWeight(t.nodes[0].skill)
     const w = ROLES[cc().role]?.weights || {}
     return t.stats.reduce((s, st) => s + (w[st] || 0), 0)
   }
@@ -124,6 +150,8 @@
     results[b.id] = solve(b, requiredIds(b), {
       lambda: state.lambda,
       blockedIds: new Set(cfg(b).blocked),
+      freeIds: new Set(cfg(b).owned || []),
+      budget: cfg(b).budget || 0,
       valueOf: (n) => (n.typeKey ? weightOf(b, n.typeKey) : 0),
     })
   }
@@ -146,6 +174,8 @@
       if (t.length) o.t = t
       if (c.reqNodes.length) o.n = c.reqNodes
       if (c.blocked.length) o.x = c.blocked
+      if (c.owned?.length) o.o = c.owned
+      if (c.budget > 0) o.g = c.budget
       if (Object.keys(o).length) b[bd.id] = o
     }
     const json = JSON.stringify({ v: 1, c: state.cls, r: cc().role, l: state.lambda, b })
@@ -157,7 +187,9 @@
     try {
       const o = JSON.parse(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')))
       const cls = CLASSES.find((c) => c.slug === o.c)
-      return cls && cls.roles.includes(o.r) ? o : null
+      if (!cls) return null
+      if (!cls.roles.includes(o.r)) o.r = cls.roles[0] // links antigos com papel que saiu
+      return o
     } catch (e) {
       return null
     }
@@ -176,6 +208,8 @@
       dst.reqTypes = (src.t || []).filter((i) => bd.types[i]).map((i) => bd.types[i].key)
       dst.reqNodes = (src.n || []).filter((id) => bd.byId.has(id))
       dst.blocked = (src.x || []).filter((id) => bd.byId.has(id))
+      dst.owned = (src.o || []).filter((id) => bd.byId.has(id))
+      dst.budget = Math.max(0, Math.floor(+src.g || 0))
     }
   }
   function save() {
@@ -198,7 +232,7 @@
       box.appendChild(t)
     }
     const info = classInfo()
-    $('role-pick').hidden = !info
+    $('role-pick').hidden = !info || info.roles.length < 2
     const rbox = $('roles')
     rbox.innerHTML = ''
     for (const r of info ? info.roles : []) {
@@ -236,14 +270,14 @@
     if (n.type === 'Start') return `<b>${n.name}</b> — ponto de partida, sem custo.`
     const req = requiredIds(b).has(n.id)
     const byType = cfg(b).reqTypes.includes(n.typeKey)
-    const flags = [cfg(b).blocked.includes(n.id) ? 'bloqueado' : '', req ? (byType ? 'obrigatório pelo tipo' : 'obrigatório') : '',
+    const flags = [cfg(b).blocked.includes(n.id) ? 'bloqueado' : '', (cfg(b).owned || []).includes(n.id) ? 'já aberto no personagem' : '', req ? (byType ? 'obrigatório pelo tipo' : 'obrigatório') : '',
       results[b.id]?.ok && results[b.id].ids.has(n.id) ? 'no caminho' : ''].filter(Boolean).join(', ')
     return `<b>${n.effects.join(' · ')}</b> — ${n.cost} ${n.cost > 1 ? 'pontos' : 'ponto'}, peso ${fmt(weightOf(b, n.typeKey))}` +
       ` · linha ${n.row - b.r0 + 1}, coluna ${n.col - b.c0 + 1}${flags ? ' · ' + flags : ''}`
   }
 
   function renderGrid() {
-    const b = active, r = results[b.id], req = requiredIds(b), blocked = new Set(cfg(b).blocked)
+    const b = active, r = results[b.id], req = requiredIds(b), blocked = new Set(cfg(b).blocked), owned = new Set(cfg(b).owned || [])
     const focused = document.activeElement?.dataset?.node
     const g = $('grid')
     g.innerHTML = ''
@@ -258,7 +292,7 @@
         c.dataset.node = n.id
         c.className = 'cell g-' + n.grade + (n.type === 'SkillLevel' ? ' skill' : '') + (n.type === 'Start' ? ' start' : '') +
           (n.typeKey && weightOf(b, n.typeKey) > 0 ? ' weighted' : '') +
-          (blocked.has(n.id) ? ' blocked' : req.has(n.id) ? ' req' : r?.ok && r.ids.has(n.id) && n.type !== 'Start' ? ' path' : '')
+          (blocked.has(n.id) ? ' blocked' : owned.has(n.id) ? ' owned' : req.has(n.id) ? ' req' : r?.ok && r.ids.has(n.id) && n.type !== 'Start' ? ' path' : '')
         if (n.icon) {
           const img = document.createElement('img')
           img.src = n.icon
@@ -286,18 +320,29 @@
       $('res-points').textContent = '–'
       badge.className = 'badge err'
       badge.textContent = 'Sem caminho: um bloqueio isola um node obrigatório'
-      $('res-nodes').textContent = $('res-weight').textContent = '–'
+      $('res-nodes').textContent = $('res-weight').textContent = $('res-owned').textContent = '–'
       $('gains').innerHTML = ''
     } else {
+      const ownedSet = new Set(cfg(b).owned || [])
+      const fresh = [...r.ids].filter((id) => !ownedSet.has(id) && b.byId.get(id).type !== 'Start')
       $('res-points').textContent = r.points
-      $('res-of').textContent = `de ${b.totalCost} pontos`
-      badge.className = 'badge' + (r.exact ? '' : ' approx')
-      badge.textContent = r.exact ? 'Caminho ótimo' : 'Aproximado (mais de 13 obrigatórios)'
-      $('res-nodes').textContent = r.ids.size - 1
+      $('res-of').textContent = ownedSet.size ? 'pontos a gastar' : `de ${b.totalCost} pontos`
+      if (r.overBudget) {
+        badge.className = 'badge err'
+        badge.textContent = `Os obrigatórios já custam ${r.requiredPoints}: aumente os pontos da montagem`
+      } else if (r.auto) {
+        badge.className = 'badge approx'
+        badge.textContent = `Montagem automática (estimativa): ${r.points} de ${cfg(b).budget} pontos`
+      } else {
+        badge.className = 'badge' + (r.exact ? '' : ' approx')
+        badge.textContent = r.exact ? 'Caminho ótimo' : 'Aproximado (mais de 13 obrigatórios)'
+      }
+      $('res-nodes').textContent = fresh.length
+      $('res-owned').textContent = ownedSet.size
       $('res-weight').textContent = fmt(r.attack)
-      // soma os efeitos dos nodes escolhidos: "Nome +X" / "Nome +X%"
+      // soma os efeitos dos nodes novos: "Nome +X" / "Nome +X%"
       const sum = new Map()
-      for (const id of r.ids) for (const e of b.byId.get(id).effects) {
+      for (const id of fresh) for (const e of b.byId.get(id).effects) {
         const m = e.match(/^(.*) \+([\d.]+)(%?)$/)
         if (!m) continue
         const cur = sum.get(m[1]) || { v: 0, pct: m[3] }
@@ -371,6 +416,7 @@
         tipos: Object.fromEntries(b.types.map((t) => [t.key, { peso: weightOf(b, t.key), obrigatorio: cfg(b).reqTypes.includes(t.key) }])),
         nodesObrigatorios: cfg(b).reqNodes.map((id) => nodeRef(b, id)),
         nodesBloqueados: cfg(b).blocked.map((id) => nodeRef(b, id)),
+        pontosMontagemAutomatica: cfg(b).budget || 0,
       }
     }
     return JSON.stringify(out, null, 2)
@@ -382,7 +428,9 @@
     for (const b of boards) {
       const a = src.arvores?.[b.name]
       const c = (next[b.id] = emptyBoard())
+      c.owned = cfg(b).owned || [] // o que veio do personagem não é mexido pelo JSON
       if (!a) continue
+      c.budget = Math.max(0, Math.floor(+a.pontosMontagemAutomatica || 0))
       for (const [key, v] of Object.entries(a.tipos || {})) {
         if (!b.typeByKey.has(key)) throw new Error(`Tipo desconhecido em ${b.name}: "${key}"`)
         if (isFinite(+v.peso) && +v.peso >= 0) c.weights[key] = +v.peso
@@ -420,8 +468,105 @@
     renderChooser()
     if (!ready()) return
     renderTabs(); renderGrid(); renderTypes(); renderResult(); renderLambda()
+    $('budget').value = cfg(active).budget || ''
+    $('budget-max').textContent = `Completar o que falta desta árvore custa ${active.nodes.filter((n) => !(cfg(active).owned || []).includes(n.id)).reduce((s, n) => s + n.cost, 0)} pontos.`
     $('json').value = toJson()
+    renderChar()
   }
+
+  // ---- personagem (API do site oficial, via /api/char) ----------------------
+  const REGIONS = { la: 'América do Sul', naw: 'América do Norte – Oeste', nae: 'América do Norte – Leste', eu: 'Europa', as: 'Ásia' }
+  const charMsg = (t, err) => { $('char-msg').textContent = t; $('char-msg').className = 'hint' + (err ? ' err' : '') }
+  async function api(params) {
+    let res
+    try {
+      res = await fetch('/api/char?' + new URLSearchParams(params))
+    } catch (e) {
+      throw new Error('sem conexão com o servidor')
+    }
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data) throw new Error((data && data.error) || 'a consulta falhou (' + res.status + ')')
+    return data
+  }
+  async function loadServers() {
+    const sel = $('char-server')
+    sel.innerHTML = '<option value="">Todos os servidores</option>'
+    try {
+      const d = await api({ op: 'servers', region: $('char-region').value })
+      for (const s of d.servers) sel.insertAdjacentHTML('beforeend', `<option value="${s.id}">${s.name}</option>`)
+    } catch (e) {} // sem a lista, a busca ainda funciona em todos os servidores
+  }
+  async function searchChar() {
+    const keyword = $('char-name').value.trim()
+    $('char-results').innerHTML = ''
+    if (keyword.length < 2) return charMsg('Digite pelo menos 2 letras do nome.', true)
+    charMsg('Buscando…')
+    try {
+      const d = await api({ op: 'search', region: $('char-region').value, serverId: $('char-server').value, keyword })
+      if (!d.results.length) return charMsg('Nenhum personagem encontrado. Confira o nome, a região e o servidor.', true)
+      charMsg('Escolha o personagem:')
+      for (const c of d.results) {
+        const cls = CLASSES.find((x) => x.slug === c.cls)
+        const bt = document.createElement('button')
+        bt.type = 'button'; bt.className = 'tab'
+        bt.innerHTML = `<span></span><small>${cls ? cls.name : 'classe ?'} · nv ${c.level} · ${c.server}</small>`
+        bt.firstChild.textContent = c.name
+        bt.onclick = () => importChar(c)
+        $('char-results').appendChild(bt)
+      }
+    } catch (e) {
+      charMsg('Não foi possível buscar agora: ' + e.message + '. A API do site oficial pode estar fora do ar; dá para seguir sem importar.', true)
+    }
+  }
+  async function importChar(c) {
+    charMsg('Importando ' + c.name + '…')
+    try {
+      const d = await api({ op: 'import', region: $('char-region').value, serverId: c.serverId, characterId: c.id })
+      const slug = d.profile.cls
+      if (!CLASSES.some((x) => x.slug === slug)) throw new Error('classe do personagem não reconhecida')
+      const prepared = await loadClass(slug)
+      state.cls = slug
+      const k = cc()
+      if (!k.role) k.role = classInfo().roles[0]
+      k.char = { name: d.profile.name, level: d.profile.level, server: d.profile.server, skills: d.skills }
+      let opened = 0
+      for (const bd of prepared) {
+        const ids = (d.boards[bd.id] || []).filter((id) => bd.byId.has(id) && bd.byId.get(id).type !== 'Start')
+        ;(k.boards[bd.id] = k.boards[bd.id] || emptyBoard()).owned = ids
+        opened += ids.length
+      }
+      $('char-results').innerHTML = ''
+      await open()
+      charMsg(`Importado: ${opened} nodes já abertos entram com custo zero.`)
+    } catch (e) {
+      charMsg('Não foi possível importar: ' + e.message + '. Dá para seguir marcando à mão.', true)
+    }
+  }
+  function renderChar() {
+    const ch = state.cls ? cc().char : null
+    $('char-current').hidden = !ch
+    if (ch) $('char-who').textContent = `${ch.name} · nível ${ch.level} · ${ch.server}`
+  }
+  $('char-region').innerHTML = Object.entries(REGIONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')
+  $('char-region').onchange = loadServers
+  $('char-form').onsubmit = (e) => { e.preventDefault(); searchChar() }
+  $('char-skills').onclick = () => {
+    for (const b of boards) for (const t of b.types) if (t.skill) cfg(b).weights[t.key] = charSkillWeight(t.nodes[0].skill)
+    recomputeAll(); save(); renderAll()
+    charMsg('Pesos das habilidades ajustados pelo que o personagem usa e pelo nível de cada uma. Edite à vontade na tabela.')
+  }
+  $('char-clear').onclick = () => {
+    delete cc().char
+    for (const b of boards) cfg(b).owned = []
+    recomputeAll(); save(); renderAll()
+    charMsg('Personagem removido.')
+  }
+  $('budget').oninput = () => {
+    cfg(active).budget = Math.max(0, Math.floor(+$('budget').value || 0))
+    clearTimeout($('budget')._t)
+    $('budget')._t = setTimeout(() => changed(active), 250)
+  }
+  $('budget-off').onclick = () => { cfg(active).budget = 0; $('budget').value = ''; changed(active) }
   /** Carrega a classe atual (se houver) e redesenha tudo. */
   async function open() {
     boards = []
@@ -436,6 +581,7 @@
       return
     }
     active = boards[0]
+    if (cc().role && !classInfo().roles.includes(cc().role)) cc().role = classInfo().roles[0]
     if (cc().role) recomputeAll()
     save()
     renderAll()
@@ -489,10 +635,11 @@
     catch (e) { msg('Não foi possível aplicar: ' + e.message) }
   }
   $('json-copy').onclick = () => copy($('json').value, $('json'), msg)
-  $('json-reset').onclick = () => { cc().boards = {}; recomputeAll(); save(); renderAll(); msg('Padrão restaurado.') }
+  $('json-reset').onclick = () => { for (const b of boards) cc().boards[b.id] = { ...emptyBoard(), owned: cfg(b).owned || [] }; recomputeAll(); save(); renderAll(); msg('Padrão restaurado.') }
 
   // ---- início: o link (#s=...) tem prioridade sobre o que ficou salvo -------
   async function boot() {
+    loadServers()
     const shared = decodeHash()
     if (shared) {
       try { await applyShared(shared) } catch (e) {}
