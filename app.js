@@ -18,21 +18,32 @@
   // Peso padrão por stat (chave em inglês, estável) em cada papel. Stat que não
   // aparece vale 0 — no DPS, tudo que é defensivo; no Tank, tudo que é ofensivo.
   // Nodes de habilidade começam em 0 nos dois.
+  //
+  // Escala do DPS: 1,0 = um node comum de Ataque Adicional +3. Os % (nodes
+  // únicos) são convertidos por dano real estimado no endgame (KR), segundo
+  // https://gameplay.tips/guides/aion-2-how-stats-work-damage-formula-guide.html:
+  //   Ataque Adicional  ~0,1% de dano a cada 10  → +3    ≈ 0,03%  → 1
+  //   Amplif. de Dano   ~0,35% por 1%            → +1,5% ≈ 0,53%  → 17
+  //   Golpes Múltiplos  ~0,33% por 1%            → +1,5% ≈ 0,50%  → 16
+  //   Dano Crítico      ~0,4–0,6% por 1%         → +1,5% ≈ 0,75%  → 25
+  // Sem número publicado (estimativa nossa): Velocidade de Combate ~0,7% por 1%
+  // (→ 35) e Redução de Recarga ~0,5% por 1% (→ 25). Acerto Crítico, Precisão e
+  // Acerto de Alteração de Estado ficam em 1 por falta de conversão conhecida.
+  // No Tank, os únicos defensivos espelham esses valores (suposição).
   const ROLES = {
     dps: {
       name: 'DPS',
       weights: {
-        'Attack Bonus': 1, 'Damage Boost': 1, 'PvP Attack': 1, 'PvP Damage Boost': 1,
-        'Critical Hit': 0.5, 'Critical Damage Boost': 0.5, 'Multi-hit Chance': 0.5, 'Combat Speed': 0.5,
-        'Cooldown Reduction': 0.5, 'PvP Critical Hit': 0.5, 'PvP Accuracy': 0.5, 'Status Effect Chance': 0.5,
+        'Attack Bonus': 1, 'PvP Attack': 1, 'Critical Hit': 1, 'PvP Critical Hit': 1, 'PvP Accuracy': 1, 'Status Effect Chance': 1,
+        'Damage Boost': 17, 'PvP Damage Boost': 17, 'Multi-hit Chance': 16, 'Critical Damage Boost': 25,
+        'Cooldown Reduction': 25, 'Combat Speed': 35,
       },
     },
     tank: {
       name: 'Tank',
       weights: {
-        HP: 1, 'Defense Bonus': 1, 'Damage Tolerance': 1, 'PvP Defense': 1, 'PvP Damage Tolerance': 1,
-        'Critical Hit Resist': 0.5, 'Critical Damage Tolerance': 0.5, 'Multi-hit Resist': 0.5,
-        'PvP Critical Hit Resist': 0.5, 'PvP Evasion': 0.5, 'Status Effect Resist': 0.5,
+        HP: 1, 'Defense Bonus': 1, 'PvP Defense': 1, 'Critical Hit Resist': 1, 'PvP Critical Hit Resist': 1, 'PvP Evasion': 1, 'Status Effect Resist': 1,
+        'Damage Tolerance': 17, 'PvP Damage Tolerance': 17, 'Multi-hit Resist': 16, 'Critical Damage Tolerance': 25,
       },
     },
   }
