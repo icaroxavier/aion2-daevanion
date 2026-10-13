@@ -438,7 +438,7 @@
         const st = skillStat(s.name)
         const id = 'sk-' + s.name.replace(/[^a-z0-9]+/gi, '-')
         const label = document.createElement('label')
-        label.className = 'skill'
+        label.className = 'skillpick'
         const hint = passive
           ? `peso estimado ${fmt(passiveEstimate(s.name))}`
           : st ? `na barra de ${Math.round(st.equipped * 100)}% · nível médio ${fmt(st.avg)}` : ''
