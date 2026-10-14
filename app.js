@@ -313,6 +313,9 @@
     // fontes de pontos: [nível, missões, masmorras, festival, pesadelo, outros]
     const src = ['level', 'quests', 'dungeons', 'festival', 'nightmare', 'other'].map((f) => int(cc().sources[f]))
     if (src.some(Boolean)) out.s = src
+    // personagem importado: [nome, nível, servidor, ativas na barra]
+    const ch = cc().char
+    if (ch) out.h = [ch.name, ch.level, ch.server, (ch.skills || []).filter((x) => x.cat !== 'Passive' && x.equip).map((x) => x.name)]
     return btoa(unescape(encodeURIComponent(JSON.stringify(out)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
   }
   function decodeHash() {
@@ -336,6 +339,9 @@
     c.skillsDone = !!o.d
     for (const name of o.k || []) c.skills[name] = true
     for (const name of o.u || []) c.skills[name] = false
+    if (Array.isArray(o.h)) {
+      c.char = { name: String(o.h[0] || ''), level: int(o.h[1], 99), server: String(o.h[2] || ''), skills: (Array.isArray(o.h[3]) ? o.h[3] : []).map((name) => ({ name: String(name), cat: 'Active', equip: true })) }
+    } else if (o.v >= 2) delete c.char
     if (Array.isArray(o.s)) ['level', 'quests', 'dungeons', 'festival', 'nightmare', 'other'].forEach((f, i) => (c.sources[f] = int(o.s[i])))
     for (const bd of prepared) {
       const src = (o.b || {})[bd.id]
