@@ -284,6 +284,7 @@
   //     tipos são identificados pelo id do primeiro node do tipo.
   // v1 (links antigos): tipos por índice na lista ordenada — ainda é lido.
   let lastHash = ''
+  const LAST_URL = 'daevanion-rota-last-url'
   const repId = (t) => t.nodes[0].id
   function encodeState() {
     const b = {}
@@ -354,6 +355,8 @@
     if (!ready()) return
     lastHash = '#s=' + encodeState()
     try { history.replaceState(null, '', lastHash) } catch (e) {}
+    // única coisa guardada no navegador: o último endereço, para reabrir de onde parou
+    try { localStorage.setItem(LAST_URL, lastHash) } catch (e) {}
   }
 
   // ---- arquivo: salvar no disco / abrir -------------------------------------
@@ -840,6 +843,13 @@
   // ---- início: o link (#s=...) tem prioridade sobre o que ficou salvo -------
   async function boot() {
     loadServers()
+    // abriu sem link: retoma o último endereço usado neste navegador
+    if (!decodeHash()) {
+      try {
+        const last = localStorage.getItem(LAST_URL)
+        if (last && /^#s=[A-Za-z0-9_-]+$/.test(last)) history.replaceState(null, '', last)
+      } catch (e) {}
+    }
     const shared = decodeHash()
     if (shared) {
       try { await applyShared(shared) } catch (e) {}
