@@ -132,13 +132,18 @@ td > small { display: block; margin: 0; }
 .guarantee summary { cursor: pointer; font-weight: 600; }
 .guarantee[open] > * + * { margin-top: 8px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px 3px 4px; cursor: pointer; font-size: 12.5px; max-width: 100%; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--line); border-radius: 99px; padding: 3px 4px 3px 4px; font-size: 12.5px; max-width: 100%; }
+.chip label { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; cursor: pointer; }
+.chip input.qty { width: 42px; background: var(--bg); border: 1px solid var(--line); border-radius: 99px; padding: 1px 6px; text-align: right; font-size: 12px; color: var(--fg); }
+.chip .of { margin-left: -4px; }
+.chip .max { background: none; border: 1px solid currentColor; border-radius: 99px; padding: 1px 8px; font-size: 11.5px; cursor: pointer; color: inherit; opacity: .85; }
 .chip.gold { padding-left: 10px; border-color: color-mix(in srgb, var(--unique) 45%, var(--line)); }
 .chip img { width: 22px; height: 22px; border-radius: 50%; flex: none; }
 .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip small { color: var(--muted); }
 .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .chip[aria-pressed="true"] small { color: inherit; opacity: .8; }
+.chip[aria-pressed="true"] input.qty { border-color: var(--on-accent); }
 .field { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .chooser { flex-direction: row; flex-wrap: wrap; gap: 14px 32px; }
 .pick { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -245,7 +250,7 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
         <ul class="gains" id="pool-split" hidden></ul>
         <details class="guarantee" open>
           <summary>Garantir na build</summary>
-          <p class="hint">O que você marcar aqui entra obrigatoriamente; o resto dos pontos vai para o maior peso.</p>
+          <p class="hint">Diga quantos nodes de cada um entram obrigatoriamente (Máx = todos). Com menos que o máximo, a página escolhe os mais baratos de alcançar. O resto dos pontos vai para o maior peso.</p>
           <h3>Habilidades ativas</h3>
           <div class="chips" id="g-active"></div>
           <h3>Passivas</h3>

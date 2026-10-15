@@ -460,5 +460,51 @@
     return ctxs.map((c) => (c.ok ? finish(c, trees[k++], { auto: true, overBudget: over, poolRequired: required }) : c))
   }
 
-  return { solve, solveMany, buildGraph, EXACT_LIMIT }
+  /**
+   * "Pelo menos N destes nodes": escolhe quais N, um de cada vez, sempre o
+   * candidato mais barato de alcançar a partir da árvore atual (já contando os
+   * obrigatórios e o que foi escolhido antes). Candidatos que já estão na árvore
+   * (obrigatórios ou já abertos) contam de graça.
+   *
+   * @param items      [{ board, requiredIds, opts }] — as boards onde os candidatos estão
+   * @param candidates [[ids]] — candidatos de cada item
+   * @returns          [[ids escolhidos]] por item
+   */
+  function pickNearest(items, candidates, n) {
+    const ctxs = items.map((it) => base(it.board, it.requiredIds, it.opts))
+    const trees = ctxs.map((c) => (c.ok ? new Set(c.picked) : null))
+    const chosen = items.map(() => [])
+    let need = n
+    ctxs.forEach((c, k) => {
+      if (!c.ok) return
+      for (const id of candidates[k]) {
+        const i = c.g.indexOfId.get(id)
+        if (i !== undefined && (trees[k].has(i) || c.cost[i] === 0)) need--
+      }
+    })
+    while (need > 0) {
+      let best = null
+      ctxs.forEach((c, k) => {
+        if (!c.ok) return
+        const cand = candidates[k].map((id) => c.g.indexOfId.get(id)).filter((i) => i !== undefined && !trees[k].has(i) && c.cost[i] > 0)
+        if (!cand.length) return
+        const total = c.value.reduce((a, b) => a + b, 0)
+        const eps = 0.5 / (total + 1)
+        const w = c.cost.map((x, i) => Math.max(MIN_WEIGHT, x - eps * c.value[i]))
+        const nn = c.g.nodes.length
+        const dist = new Float64Array(nn).fill(Infinity)
+        const prev = new Int32Array(nn).fill(-1)
+        trees[k].forEach((v) => (dist[v] = 0))
+        relax(nn, c.g.adj, w, dist, (u, v) => (prev[u] = v))
+        for (const i of cand) if (isFinite(dist[i]) && (!best || dist[i] < best.d)) best = { k, i, d: dist[i], prev }
+      })
+      if (!best) break
+      for (let v = best.i; v >= 0 && !trees[best.k].has(v); v = best.prev[v]) trees[best.k].add(v)
+      chosen[best.k].push(ctxs[best.k].g.nodes[best.i].id)
+      need--
+    }
+    return chosen
+  }
+
+  return { solve, solveMany, pickNearest, buildGraph, EXACT_LIMIT }
 })

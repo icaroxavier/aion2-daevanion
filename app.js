@@ -1,5 +1,5 @@
 ;(function () {
-  const { solve, solveMany } = window.DaevanionSolver
+  const { solve, solveMany, pickNearest } = window.DaevanionSolver
   const $ = (id) => document.getElementById(id)
   const fmt = (x) => (Math.round(x * 100) / 100).toLocaleString('pt-BR')
   const round1 = (x) => Math.round(x * 10) / 10
@@ -174,6 +174,9 @@
       c.skills = c.skills && typeof c.skills === 'object' ? c.skills : {}
       c.skillsDone = !!c.skillsDone
       c.sources = { ...emptySources(), ...(c.sources && typeof c.sources === 'object' ? c.sources : {}) }
+      // garantir na build: { idDoGrupo: quantos nodes } (ver guaranteeGroups)
+      c.guarantee = c.guarantee && typeof c.guarantee === 'object' ? c.guarantee : {}
+      for (const [k, n] of Object.entries(c.guarantee)) if (!(int(n) > 0)) delete c.guarantee[k]
       c.boards = c.boards && typeof c.boards === 'object' ? c.boards : {}
       for (const [id, b] of Object.entries(c.boards)) {
         if (!b || typeof b !== 'object') {
@@ -271,7 +274,8 @@
   const anyActivePicked = () => classSkills().some((s) => !isPassive(s.name) && skillPicked(s.name))
   // montagem automática só roda depois que o jogador disse quais ativas importam
   // garantir uma habilidade na build (seção da montagem automática) também conta como escolha
-  const anySkillRequired = () => boards.some((b) => cfg(b).reqTypes.some((k) => k.startsWith('skill:')))
+  const anySkillRequired = () =>
+    boards.some((b) => cfg(b).reqTypes.some((k) => k.startsWith('skill:'))) || Object.keys(cc().guarantee || {}).some((k) => k.startsWith('skill:'))
   const skillsSettled = () => !!rolePreset() || cc().skillsDone || anyActivePicked() || anySkillRequired()
 
   // ---- pesos, obrigatórios, cálculo -----------------------------------------
@@ -284,10 +288,17 @@
     const w = cfg(b).weights[key]
     return w === undefined ? roleWeight(b.typeByKey.get(key)) : w
   }
-  const requiredIds = (b) => {
+  const requiredBase = (b) => {
     const set = new Set(cfg(b).reqNodes)
     for (const key of cfg(b).reqTypes) (b.typeByKey.get(key)?.nodes || []).forEach((n) => set.add(n.id))
     cfg(b).blocked.forEach((id) => set.delete(id))
+    return set
+  }
+  // nodes escolhidos para cumprir o "garantir N" (recalculados em recomputeAll)
+  let guaranteePicks = {}
+  const requiredIds = (b) => {
+    const set = requiredBase(b)
+    for (const id of guaranteePicks[b.id] || []) if (!cfg(b).blocked.includes(id)) set.add(id)
     return set
   }
   const solveOpts = (b) => ({
@@ -297,7 +308,31 @@
     valueOf: (n) => (n.typeKey ? weightOf(b, n.typeKey) : 0),
   })
   const poolActive = () => cc().pool > 0 && skillsSettled()
+  /**
+   * Resolve o "garantir N" de cada grupo: N igual ao máximo vira obrigatório em
+   * todos os nodes; N menor escolhe os N mais baratos de alcançar (pickNearest),
+   * um grupo depois do outro, cada um já vendo o que os anteriores escolheram.
+   */
+  function computeGuaranteePicks() {
+    guaranteePicks = Object.fromEntries(boards.map((b) => [b.id, new Set()]))
+    const groups = guaranteeGroups()
+    const all = [...groups.active, ...groups.passive, ...groups.gold]
+    const partial = []
+    for (const e of all) {
+      const n = Math.min(int(cc().guarantee[e.id]), e.count)
+      if (!n) continue
+      if (n >= e.count) e.boards.forEach((b) => b.typeByKey.get(e.key).nodes.forEach((x) => guaranteePicks[b.id].add(x.id)))
+      else partial.push([e, n])
+    }
+    for (const [e, n] of partial) {
+      const items = e.boards.map((b) => ({ board: b, requiredIds: requiredIds(b), opts: solveOpts(b) }))
+      const picks = pickNearest(items, e.boards.map((b) => b.typeByKey.get(e.key).nodes.map((x) => x.id)), n)
+      e.boards.forEach((b, i) => picks[i].forEach((id) => guaranteePicks[b.id].add(id)))
+    }
+  }
+  const anyGuarantee = () => Object.keys(cc().guarantee).length > 0
   function recomputeAll() {
+    computeGuaranteePicks()
     const auto = skillsSettled()
     const shared = poolActive() ? boards.filter((b) => !isPvpBoard(b)) : []
     if (shared.length) {
@@ -310,7 +345,7 @@
     }
   }
   // com o total compartilhado ligado, mexer numa árvore muda as outras
-  const compute = (b) => (poolActive() && !isPvpBoard(b) ? recomputeAll() : (results[b.id] = solve(b, requiredIds(b), { ...solveOpts(b), budget: skillsSettled() ? cfg(b).budget : 0 })))
+  const compute = (b) => ((poolActive() && !isPvpBoard(b)) || anyGuarantee() ? recomputeAll() : (results[b.id] = solve(b, requiredIds(b), { ...solveOpts(b), budget: skillsSettled() ? cfg(b).budget : 0 })))
 
   // ---- link compartilhável: #s=<base64url do estado compacto> ---------------
   // v2: { v, c: classe, l: critério, p: total compartilhado, d: skillsDone,
@@ -340,6 +375,7 @@
     const out = { v: 2, c: state.cls, r: cc().role, l: state.lambda, b }
     if (cc().pool > 0) out.p = cc().pool
     if (cc().skillsDone) out.d = 1
+    if (Object.keys(cc().guarantee).length) out.q = cc().guarantee
     const k = []
     const u = []
     for (const [name, on] of Object.entries(cc().skills)) if (!!on !== defaultPicked(name)) (on ? k : u).push(name)
@@ -372,6 +408,7 @@
     const c = (state.classes[o.c] = normalize({ classes: { [o.c]: { role: CLASSES.find((x) => x.slug === o.c).roles.includes(o.r) ? o.r : 'dps', char: keep.char, sources: keep.sources } } }).classes[o.c])
     c.pool = int(o.p)
     c.skillsDone = !!o.d
+    if (o.q && typeof o.q === 'object') for (const [k, n] of Object.entries(o.q)) if (int(n) > 0) c.guarantee[k] = int(n)
     for (const name of o.k || []) c.skills[name] = true
     for (const name of o.u || []) c.skills[name] = false
     if (Array.isArray(o.h)) {
@@ -698,43 +735,48 @@
       for (const t of b.types) {
         if (t.skill) {
           const name = t.nodes[0].skill
-          const e = skills.get(name) || { key: t.key, label: t.label.replace(/ \+1$/, ''), icon: t.nodes[0].icon, passive: isPassive(name), boards: [], count: 0, cost: 0 }
+          const e = skills.get(name) || { id: t.key, key: t.key, label: t.label.replace(/ \+1$/, ''), icon: t.nodes[0].icon, passive: isPassive(name), boards: [], count: 0, cost: 0 }
           e.boards.push(b)
           e.count += t.nodes.length
           e.cost += t.nodes.reduce((s, n) => s + n.cost, 0)
           skills.set(name, e)
         } else if (t.grade === 'Unique') {
-          golds.push({ key: t.key, label: t.label, boards: [b], count: t.nodes.length, cost: t.nodes.reduce((s, n) => s + n.cost, 0), where: b.name })
+          golds.push({ id: t.key + '#' + b.id, key: t.key, label: t.label, boards: [b], count: t.nodes.length, cost: t.nodes.reduce((s, n) => s + n.cost, 0), where: b.name })
         }
       }
     }
     const list = [...skills.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'))
     return { active: list.filter((x) => !x.passive), passive: list.filter((x) => x.passive), gold: golds }
   }
-  const isGuaranteed = (e) => e.boards.every((b) => cfg(b).reqTypes.includes(e.key))
   function renderGuarantee() {
     const groups = guaranteeGroups()
     for (const [id, list] of [['g-active', groups.active], ['g-passive', groups.passive], ['g-gold', groups.gold]]) {
       const box = $(id)
       box.innerHTML = ''
       for (const e of list) {
-        const bt = document.createElement('button')
-        bt.type = 'button'
-        bt.className = 'chip' + (id === 'g-gold' ? ' gold' : '')
-        bt.setAttribute('aria-pressed', isGuaranteed(e))
-        bt.title = `${e.count} node${e.count > 1 ? 's' : ''} · ${e.cost} pts${e.where ? ' · ' + e.where : ''}`
-        bt.innerHTML = (e.icon ? `<img src="${e.icon}" alt="">` : '') + '<span></span>' + (e.where ? `<small>${e.where}</small>` : '')
-        bt.querySelector('span').textContent = e.label
-        bt.onclick = () => {
-          const on = !isGuaranteed(e)
-          for (const b of e.boards) {
-            const set = new Set(cfg(b).reqTypes)
-            on ? set.add(e.key) : set.delete(e.key)
-            cfg(b).reqTypes = [...set]
-          }
+        const n = Math.min(int(cc().guarantee[e.id]), e.count)
+        const row = document.createElement('div')
+        row.className = 'chip' + (id === 'g-gold' ? ' gold' : '')
+        row.setAttribute('aria-pressed', n > 0)
+        row.title = `${e.count} node${e.count > 1 ? 's' : ''} no total · ${e.cost} pts para pegar todos`
+        const inputId = 'q-' + e.id.replace(/[^a-z0-9]+/gi, '-')
+        row.innerHTML =
+          (e.icon ? `<img src="${e.icon}" alt="">` : '') +
+          `<label for="${inputId}"><span></span>${e.where ? `<small>${e.where}</small>` : ''}</label>` +
+          `<input class="qty" type="number" id="${inputId}" min="0" max="${e.count}" step="1" value="${n || ''}" placeholder="0">` +
+          `<small class="of">/${e.count}</small><button type="button" class="max">Máx</button>`
+        row.querySelector('span').textContent = e.label
+        const set = (v) => {
+          v = Math.min(int(v), e.count)
+          if (v > 0) cc().guarantee[e.id] = v
+          else delete cc().guarantee[e.id]
           refresh()
         }
-        box.appendChild(bt)
+        const inp = row.querySelector('input')
+        inp.oninput = () => debounced(inp, () => set(inp.value))
+        row.querySelector('.max').onclick = () => set(n >= e.count ? 0 : e.count)
+        row.querySelector('.max').textContent = n >= e.count ? 'Limpar' : 'Máx'
+        box.appendChild(row)
       }
     }
   }
