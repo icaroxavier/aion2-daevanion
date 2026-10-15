@@ -128,6 +128,9 @@ h3 { font-size: 13px; font-weight: 600; margin: 0; }
 .skillpick small, td > small { color: var(--muted); font-size: 12px; }
 td > small { display: block; margin: 0; }
 .block.attention { border-color: var(--warn); }
+table.eff + table.eff { margin-top: 10px; }
+table.eff td { padding: 3px 8px; }
+table.eff tr.diff td { color: var(--accent); font-weight: 600; }
 .guarantee { display: flex; flex-direction: column; gap: 8px; }
 .guarantee summary { cursor: pointer; font-weight: 600; }
 .guarantee[open] > * + * { margin-top: 8px; }
@@ -279,6 +282,21 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
         </div>
       </div>
 
+      <div class="block">
+        <h2 id="eff-title">Efeito da board</h2>
+        <p class="hint">Igual à aba “Board Effect” do jogo, com os mesmos nomes, para conferir. <span id="eff-cols">“Plano” é o que já está aberto mais o caminho calculado; as linhas destacadas são as que ainda faltam.</span></p>
+        <div class="tablewrap">
+          <table class="eff">
+            <thead><tr><th>Skill Effect</th><th class="r">Plano</th><th class="r eff-own">Aberto</th></tr></thead>
+            <tbody id="eff-skills"></tbody>
+          </table>
+          <table class="eff">
+            <thead><tr><th>Stat Effect</th><th class="r">Plano</th><th class="r eff-own">Aberto</th></tr></thead>
+            <tbody id="eff-stats"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="eff-points"></p>
+      </div>
       <div class="block">
         <h2>O que os nodes novos dão</h2>
         <ul class="gains" id="gains"></ul>

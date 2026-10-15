@@ -650,6 +650,62 @@
     })
   }
 
+  // ---- efeito da board, com os mesmos nomes do jogo (aba "Board Effect") ----
+  /** Soma skills (+N) e stats dos nodes, na ordem dos nodes (como o jogo lista). */
+  function boardEffects(b, idSet) {
+    const skills = new Map()
+    const stats = new Map()
+    const nodes = b.nodes.filter((n) => idSet.has(n.id) && n.type !== 'Start').sort((x, y) => x.id - y.id)
+    let points = 0
+    for (const n of nodes) {
+      points += n.cost
+      if (n.type === 'SkillLevel') {
+        skills.set(n.skill, (skills.get(n.skill) || 0) + 1)
+        continue
+      }
+      n.stats.forEach((st, i) => {
+        const m = /\+([\d.]+)(%?)$/.exec(n.effects[i] || '')
+        if (!m) return
+        const cur = stats.get(st) || { v: 0, pct: m[2] }
+        cur.v += +m[1]
+        stats.set(st, cur)
+      })
+    }
+    return { skills, stats, points, count: nodes.length }
+  }
+  function renderEffects() {
+    const b = active
+    const r = results[b.id]
+    const owned = new Set(cfg(b).owned)
+    const planned = new Set([...owned, ...(r && r.ok ? r.ids : [])])
+    const plan = boardEffects(b, planned)
+    const have = boardEffects(b, owned)
+    const showHave = owned.size > 0
+    $('eff-title').textContent = 'Efeito da board · ' + b.name
+    $('eff-cols').hidden = !showHave
+    document.querySelectorAll('.eff-own').forEach((el) => (el.hidden = !showHave))
+    const num = (v, pct) => '+' + (Math.round(v * 100) / 100).toLocaleString('en-US') + pct
+    const row = (name, p, h, fmtv) => {
+      const diff = showHave && p !== h
+      return `<tr${diff ? ' class="diff"' : ''}><td></td><td class="r">${p ? fmtv(p) : '–'}</td>${showHave ? `<td class="r">${h ? fmtv(h) : '–'}</td>` : ''}</tr>`
+    }
+    const fill = (id, entries) => {
+      const body = $(id)
+      body.innerHTML = entries.map((e) => row(e[0], e[1], e[2], e[3])).join('') || `<tr><td class="hint" colspan="3">Nada ainda.</td></tr>`
+      ;[...body.querySelectorAll('tr')].forEach((tr, i) => entries[i] && (tr.firstChild.textContent = entries[i][0]))
+    }
+    const skillNames = [...new Set([...plan.skills.keys(), ...have.skills.keys()])]
+    fill('eff-skills', skillNames.map((k) => [k, plan.skills.get(k) || 0, have.skills.get(k) || 0, (v) => '+' + v]))
+    const statNames = [...new Set([...plan.stats.keys(), ...have.stats.keys()])]
+    fill('eff-stats', statNames.map((k) => {
+      const pct = (plan.stats.get(k) || have.stats.get(k)).pct
+      return [k, plan.stats.get(k)?.v || 0, have.stats.get(k)?.v || 0, (v) => num(v, pct)]
+    }))
+    $('eff-points').textContent = showHave
+      ? `Plano: ${plan.points} pontos em ${plan.count} nodes · já aberto: ${have.points} pontos em ${have.count} nodes · faltam ${plan.points - have.points}`
+      : `Plano: ${plan.points} pontos em ${plan.count} nodes`
+  }
+
   function renderTypes() {
     const b = active
     $('types-title').textContent = `Tipos de node · ${b.name}`
@@ -824,12 +880,12 @@
   function changed(b) {
     compute(b)
     save()
-    renderTabs(); renderGrid(); renderResult(); renderAuto()
+    renderTabs(); renderGrid(); renderResult(); renderAuto(); renderEffects()
   }
   function renderAll() {
     renderChooser()
     if (!ready()) return
-    renderTabs(); renderSkills(); renderGrid(); renderTypes(); renderResult(); renderLambda(); renderAuto(); renderSources(); renderChar()
+    renderTabs(); renderSkills(); renderGrid(); renderTypes(); renderResult(); renderEffects(); renderLambda(); renderAuto(); renderSources(); renderChar()
   }
   /** Carrega a classe atual (se houver) e redesenha tudo. */
   async function open() {
