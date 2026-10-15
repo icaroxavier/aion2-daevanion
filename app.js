@@ -270,7 +270,9 @@
   }
   const anyActivePicked = () => classSkills().some((s) => !isPassive(s.name) && skillPicked(s.name))
   // montagem automática só roda depois que o jogador disse quais ativas importam
-  const skillsSettled = () => !!rolePreset() || cc().skillsDone || anyActivePicked()
+  // garantir uma habilidade na build (seção da montagem automática) também conta como escolha
+  const anySkillRequired = () => boards.some((b) => cfg(b).reqTypes.some((k) => k.startsWith('skill:')))
+  const skillsSettled = () => !!rolePreset() || cc().skillsDone || anyActivePicked() || anySkillRequired()
 
   // ---- pesos, obrigatórios, cálculo -----------------------------------------
   const roleWeight = (t) => {
@@ -680,8 +682,61 @@
         pve.map((b) => `<li><span>${b.name}</span><span>${results[b.id].points} pts · peso ${fmt(results[b.id].attack)}</span></li>`).join('') +
         `<li class="sum"><span>Total</span><span>${tot.p} de ${cc().pool} pts · peso ${fmt(tot.w)}</span></li>`
     }
+    renderGuarantee()
     $('pool-free').hidden = !(sourcesTotals().free > 0)
     $('pool-free').textContent = `Usar meus ${sourcesTotals().free} pontos disponíveis`
+  }
+
+  // ---- garantir na build: habilidades, passivas e nodes dourados -------------
+  // Cada chip liga/desliga o tipo como obrigatório nas 4 árvores de PvE (a
+  // habilidade em todas as árvores onde ela aparece; o dourado só na árvore dele).
+  function guaranteeGroups() {
+    const pve = boards.filter((b) => !isPvpBoard(b))
+    const skills = new Map()
+    const golds = []
+    for (const b of pve) {
+      for (const t of b.types) {
+        if (t.skill) {
+          const name = t.nodes[0].skill
+          const e = skills.get(name) || { key: t.key, label: t.label.replace(/ \+1$/, ''), icon: t.nodes[0].icon, passive: isPassive(name), boards: [], count: 0, cost: 0 }
+          e.boards.push(b)
+          e.count += t.nodes.length
+          e.cost += t.nodes.reduce((s, n) => s + n.cost, 0)
+          skills.set(name, e)
+        } else if (t.grade === 'Unique') {
+          golds.push({ key: t.key, label: t.label, boards: [b], count: t.nodes.length, cost: t.nodes.reduce((s, n) => s + n.cost, 0), where: b.name })
+        }
+      }
+    }
+    const list = [...skills.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'))
+    return { active: list.filter((x) => !x.passive), passive: list.filter((x) => x.passive), gold: golds }
+  }
+  const isGuaranteed = (e) => e.boards.every((b) => cfg(b).reqTypes.includes(e.key))
+  function renderGuarantee() {
+    const groups = guaranteeGroups()
+    for (const [id, list] of [['g-active', groups.active], ['g-passive', groups.passive], ['g-gold', groups.gold]]) {
+      const box = $(id)
+      box.innerHTML = ''
+      for (const e of list) {
+        const bt = document.createElement('button')
+        bt.type = 'button'
+        bt.className = 'chip' + (id === 'g-gold' ? ' gold' : '')
+        bt.setAttribute('aria-pressed', isGuaranteed(e))
+        bt.title = `${e.count} node${e.count > 1 ? 's' : ''} · ${e.cost} pts${e.where ? ' · ' + e.where : ''}`
+        bt.innerHTML = (e.icon ? `<img src="${e.icon}" alt="">` : '') + '<span></span>' + (e.where ? `<small>${e.where}</small>` : '')
+        bt.querySelector('span').textContent = e.label
+        bt.onclick = () => {
+          const on = !isGuaranteed(e)
+          for (const b of e.boards) {
+            const set = new Set(cfg(b).reqTypes)
+            on ? set.add(e.key) : set.delete(e.key)
+            cfg(b).reqTypes = [...set]
+          }
+          refresh()
+        }
+        box.appendChild(bt)
+      }
+    }
   }
 
   // ---- fontes de pontos -----------------------------------------------------

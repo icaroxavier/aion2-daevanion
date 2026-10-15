@@ -128,6 +128,17 @@ h3 { font-size: 13px; font-weight: 600; margin: 0; }
 .skillpick small, td > small { color: var(--muted); font-size: 12px; }
 td > small { display: block; margin: 0; }
 .block.attention { border-color: var(--warn); }
+.guarantee { display: flex; flex-direction: column; gap: 8px; }
+.guarantee summary { cursor: pointer; font-weight: 600; }
+.guarantee[open] > * + * { margin-top: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px 3px 4px; cursor: pointer; font-size: 12.5px; max-width: 100%; }
+.chip.gold { padding-left: 10px; border-color: color-mix(in srgb, var(--unique) 45%, var(--line)); }
+.chip img { width: 22px; height: 22px; border-radius: 50%; flex: none; }
+.chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip small { color: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.chip[aria-pressed="true"] small { color: inherit; opacity: .8; }
 .field { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .chooser { flex-direction: row; flex-wrap: wrap; gap: 14px 32px; }
 .pick { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -232,6 +243,16 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
         </div>
         <button type="button" class="link" id="pool-free" style="align-self:flex-start" hidden></button>
         <ul class="gains" id="pool-split" hidden></ul>
+        <details class="guarantee" open>
+          <summary>Garantir na build</summary>
+          <p class="hint">O que você marcar aqui entra obrigatoriamente; o resto dos pontos vai para o maior peso.</p>
+          <h3>Habilidades ativas</h3>
+          <div class="chips" id="g-active"></div>
+          <h3>Passivas</h3>
+          <div class="chips" id="g-passive"></div>
+          <h3>Douradinhos</h3>
+          <div class="chips" id="g-gold"></div>
+        </details>
         <div class="field">
           <label for="budget">Ou pontos só para esta árvore</label>
           <input class="num" type="number" id="budget" min="0" step="1" placeholder="desligado" style="width:110px">
