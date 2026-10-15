@@ -8,7 +8,7 @@
   // ---- classes e papéis -----------------------------------------------------
   // por ora só DPS (Tank e Healer ficam para depois)
   const CLASSES = [
-    { slug: 'gladiator', name: 'Gladiador', roles: ['dps'] },
+    { slug: 'gladiator', name: 'Gladiador', roles: ['dps', 'tank'] },
     { slug: 'templar', name: 'Templário', roles: ['dps'] },
     { slug: 'ranger', name: 'Arqueiro', roles: ['dps'] },
     { slug: 'assassin', name: 'Assassino', roles: ['dps'] },
@@ -38,6 +38,35 @@
         'Damage Boost': 17, 'PvP Damage Boost': 17, 'Multi-hit Chance': 16, 'Critical Damage Boost': 25,
         'Cooldown Reduction': 25, 'Combat Speed': 35,
       },
+    },
+    // Tank (só Gladiador por ora). Mesma escala, mas a métrica é vida efetiva
+    // (EHP = PV ÷ fração de dano que passa): 1,0 ≈ +0,03% de EHP. Não há fórmula
+    // de defesa publicada; estimativas nossas, com as premissas:
+    //   PV +100           PV ~30.000 no endgame → +0,33% EHP              → 11
+    //   Defesa +30        defesa ~3.000 mitigando ~40% → +1% de defesa
+    //                     ≈ +0,4% EHP                                      → 10
+    //   Tolerância a Dano +1,5%  espelho da Amplificação (≈0,5%)          → 17
+    //   Tol. Dano Crítico +1,5%  só vale nos críticos do chefe (~20%)     → 7
+    //   Resist. Golpes Múltiplos +1,5%  menos acertos extras do chefe     → 6
+    //   Resist. Acerto Crítico +5  conversão desconhecida                 → 2
+    // Ofensivos valem ~30% do DPS (ameaça e dano ainda contam); Redução de
+    // Recarga vale mais (volta das defensivas): 15.
+    tank: {
+      name: 'Tank',
+      weights: {
+        HP: 11, 'Defense Bonus': 10, 'Damage Tolerance': 17, 'Critical Damage Tolerance': 7, 'Multi-hit Resist': 6, 'Critical Hit Resist': 2,
+        'PvP Defense': 10, 'PvP Damage Tolerance': 17, 'PvP Critical Hit Resist': 2, 'PvP Evasion': 2, 'Status Effect Resist': 2,
+        'Attack Bonus': 0.3, 'PvP Attack': 0.3, 'Critical Hit': 0.3, 'Damage Boost': 5, 'PvP Damage Boost': 5, 'Multi-hit Chance': 5,
+        'Critical Damage Boost': 7.5, 'Combat Speed': 10.5, 'Cooldown Reduction': 15,
+      },
+      // Habilidades com peso pronto (por nome, estimativa nossa): o tank não
+      // precisa escolher antes da montagem automática. Defesa e provocação 10,
+      // controle 4, o resto (dano/ameaça) 3.
+      skills: {
+        'Protection Armor': 10, 'Survival Stance': 10, 'Survival Willpower': 10, 'Blood Absorption': 10, 'Mocking Blade': 10, Defiance: 10,
+        'Aerial Snare': 4, 'Ankle Slice': 4,
+      },
+      skillDefault: 3,
     },
   }
   const ABBR = {
@@ -215,10 +244,14 @@
   const stats = () => (window.DAEVANION_SKILL_STATS || {})[state.cls] || { skills: {} }
   const skillStat = (name) => stats().skills[name]
   const isPassive = (name) => (skillStat(name) || {}).cat === 'Passive'
+  const rolePreset = () => ROLES[cc().role]?.skills
+  // padrão: no DPS só as passivas vêm marcadas; num papel com pesos prontos, todas
+  const defaultPicked = (name) => (rolePreset() ? true : isPassive(name))
   const skillPicked = (name) => {
     const v = cc().skills[name]
-    return v === undefined ? isPassive(name) : !!v
+    return v === undefined ? defaultPicked(name) : !!v
   }
+  const presetWeight = (name) => (rolePreset()[name] ?? ROLES[cc().role].skillDefault)
   function passiveEstimate(name) {
     const st = stats()
     const s = st.skills[name]
@@ -226,7 +259,7 @@
     const top = (st._top = st._top || Math.max(...Object.values(st.skills).map((x) => x.avg)))
     return round1(SKILL_BASE * s.learned * Math.pow(s.avg / top, 2))
   }
-  const skillWeight = (name) => (!skillPicked(name) ? 0 : isPassive(name) ? passiveEstimate(name) : SKILL_BASE)
+  const skillWeight = (name) => (!skillPicked(name) ? 0 : rolePreset() ? presetWeight(name) : isPassive(name) ? passiveEstimate(name) : SKILL_BASE)
   /** Habilidades que têm node em alguma árvore da classe (uma entrada por skill). */
   function classSkills() {
     const seen = new Map()
@@ -237,7 +270,7 @@
   }
   const anyActivePicked = () => classSkills().some((s) => !isPassive(s.name) && skillPicked(s.name))
   // montagem automática só roda depois que o jogador disse quais ativas importam
-  const skillsSettled = () => cc().skillsDone || anyActivePicked()
+  const skillsSettled = () => !!rolePreset() || cc().skillsDone || anyActivePicked()
 
   // ---- pesos, obrigatórios, cálculo -----------------------------------------
   const roleWeight = (t) => {
@@ -302,12 +335,12 @@
       if (c.budget > 0) o.g = c.budget
       if (Object.keys(o).length) b[bd.id] = o
     }
-    const out = { v: 2, c: state.cls, l: state.lambda, b }
+    const out = { v: 2, c: state.cls, r: cc().role, l: state.lambda, b }
     if (cc().pool > 0) out.p = cc().pool
     if (cc().skillsDone) out.d = 1
     const k = []
     const u = []
-    for (const [name, on] of Object.entries(cc().skills)) if (!!on !== isPassive(name)) (on ? k : u).push(name)
+    for (const [name, on] of Object.entries(cc().skills)) if (!!on !== defaultPicked(name)) (on ? k : u).push(name)
     if (k.length) out.k = k
     if (u.length) out.u = u
     // fontes de pontos: [nível, missões, masmorras, festival, pesadelo, outros]
@@ -334,7 +367,7 @@
     state.cls = o.c
     state.lambda = Math.min(1, Math.max(0, +o.l || 0))
     const keep = state.classes[o.c] || {}
-    const c = (state.classes[o.c] = normalize({ classes: { [o.c]: { role: 'dps', char: keep.char, sources: keep.sources } } }).classes[o.c])
+    const c = (state.classes[o.c] = normalize({ classes: { [o.c]: { role: CLASSES.find((x) => x.slug === o.c).roles.includes(o.r) ? o.r : 'dps', char: keep.char, sources: keep.sources } } }).classes[o.c])
     c.pool = int(o.p)
     c.skillsDone = !!o.d
     for (const name of o.k || []) c.skills[name] = true
@@ -448,7 +481,9 @@
         const id = 'sk-' + s.name.replace(/[^a-z0-9]+/gi, '-')
         const label = document.createElement('label')
         label.className = 'skillpick'
-        const hint = passive
+        const hint = rolePreset()
+          ? `peso do papel ${ROLES[cc().role].name}: ${fmt(presetWeight(s.name))}`
+          : passive
           ? `peso estimado ${fmt(passiveEstimate(s.name))}`
           : st ? `na barra de ${Math.round(st.equipped * 100)}% · nível médio ${fmt(st.avg)}` : ''
         label.innerHTML = `<input type="checkbox" id="${id}">${s.icon ? `<img src="${s.icon}" alt="">` : ''}<span><b></b><small>${hint}</small></span>`
@@ -634,6 +669,19 @@
       : `Completar o que falta desta árvore custa ${left} pontos.`
     $('pool-row').hidden = pvp
     $('pool-note').textContent = pvp ? 'Azphel usa pontos próprios (JvJ), fora do total das outras quatro árvores.' : ''
+    // divisão da melhor build entre as 4 árvores
+    const split = $('pool-split')
+    const pve = boards.filter((b) => !isPvpBoard(b))
+    const on = poolActive() && pve.every((b) => results[b.id]?.ok)
+    split.hidden = !on
+    if (on) {
+      const tot = pve.reduce((a, b) => ({ p: a.p + results[b.id].points, w: a.w + results[b.id].attack }), { p: 0, w: 0 })
+      split.innerHTML =
+        pve.map((b) => `<li><span>${b.name}</span><span>${results[b.id].points} pts · peso ${fmt(results[b.id].attack)}</span></li>`).join('') +
+        `<li class="sum"><span>Total</span><span>${tot.p} de ${cc().pool} pts · peso ${fmt(tot.w)}</span></li>`
+    }
+    $('pool-free').hidden = !(sourcesTotals().free > 0)
+    $('pool-free').textContent = `Usar meus ${sourcesTotals().free} pontos disponíveis`
   }
 
   // ---- fontes de pontos -----------------------------------------------------
@@ -739,6 +787,7 @@
   }
   $('pool').oninput = () => { cc().pool = int($('pool').value); debounced($('pool'), refresh) }
   $('budget').oninput = () => { cfg(active).budget = int($('budget').value); debounced($('budget'), refresh) }
+  $('pool-free').onclick = () => { cc().pool = sourcesTotals().free; refresh() }
   $('auto-off').onclick = () => { cc().pool = 0; boards.forEach((b) => (cfg(b).budget = 0)); refresh() }
   $('skills-none').onclick = () => { cc().skillsDone = true; refresh() }
   $('skills-from-char').onclick = () => {

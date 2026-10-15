@@ -2,7 +2,8 @@
 
 Calculadora de caminho para a Daevanion Board do Aion 2, para as 8 classes.
 
-Você escolhe a classe (por ora só o papel DPS: tudo que é defensivo começa em 0).
+Você escolhe a classe e o papel: DPS em todas (defensivos começam em 0) e Tank
+no Gladiador (pesos por vida efetiva estimada, com pesos de habilidade prontos).
 
 Você marca o que é obrigatório (um node específico ou um tipo inteiro) e dá um
 peso para cada tipo de node de cada árvore. A página calcula o conjunto de nodes
@@ -54,8 +55,10 @@ documentada e pode falhar a qualquer momento; a página só avisa e segue.
 
 ## Montagem automática
 
-Com "pontos para gastar" preenchido, a página liga os obrigatórios e gasta o
-resto nos nodes de maior peso por ponto (heurística gulosa por caminho).
+"Melhor build com X pontos" divide X entre Nezekan, Zikel, Vaizel e Triniel:
+liga os obrigatórios e gasta o resto nos nodes de maior peso por ponto
+(heurística gulosa por caminho + busca local trocando folhas). Também dá para
+usar um orçamento só para a árvore aberta.
 
 ## Pesos das habilidades
 

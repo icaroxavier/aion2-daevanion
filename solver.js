@@ -248,17 +248,16 @@
    */
   function expandMany(ctxs, budget) {
     const ws = ctxs.map((c) => {
-      const total = c.value.reduce((a, b) => a + b, 0)
+      const total = c.value.reduce((x, y) => x + y, 0)
       const eps = 0.5 / (total + 1)
       return c.cost.map((x, i) => Math.max(MIN_WEIGHT, x - eps * c.value[i]))
     })
-    let best = ctxs.map((c) => c.picked)
-    let bestVal = -1
-    let bestCost = Infinity
-    for (const alpha of [0.75, 1, 1.5, 2]) {
-      const trees = ctxs.map((c) => new Set(c.picked))
-      let spent = 0
-      trees.forEach((tree, k) => tree.forEach((v) => (spent += ctxs[k].cost[v])))
+    const spentOf = (trees) => trees.reduce((a, t, k) => a + [...t].reduce((x, v) => x + ctxs[k].cost[v], 0), 0)
+    const valueOf = (trees) => trees.reduce((a, t, k) => a + [...t].reduce((x, v) => x + ctxs[k].value[v], 0), 0)
+
+    /** Compra caminhos, do melhor ganho^alpha/custo para baixo, até não caber mais nada. */
+    function fill(trees, alpha) {
+      let spent = spentOf(trees)
       const cached = ctxs.map(() => null) // melhor compra de cada board (refeita quando a board muda ou não cabe mais)
       const bestPick = (k) => {
         const { g, cost, value } = ctxs[k]
@@ -293,17 +292,74 @@
           if (!cached[j] || (cached[j].node >= 0 && spent + cached[j].cost > budget)) cached[j] = bestPick(j)
           if (cached[j].node >= 0 && (k < 0 || cached[j].score > cached[k].score)) k = j
         }
-        if (k < 0) break
+        if (k < 0) return
         const p = cached[k]
         for (let v = p.node; v >= 0 && !trees[k].has(v); v = p.prev[v]) trees[k].add(v)
         spent += p.cost
         cached[k] = null
       }
-      let val = 0
-      trees.forEach((tree, k) => tree.forEach((v) => (val += ctxs[k].value[v])))
-      if (val > bestVal + 1e-9 || (Math.abs(val - bestVal) <= 1e-9 && spent < bestCost)) {
+    }
+
+    /** Folhas removíveis: fora da parte obrigatória, com no máximo 1 vizinho na árvore. */
+    function leaves(trees) {
+      const out = []
+      trees.forEach((tree, k) => {
+        const { g, cost, value, picked } = ctxs[k]
+        tree.forEach((v) => {
+          if (picked.has(v) || cost[v] === 0) return
+          let deg = 0
+          for (const u of g.adj[v]) if (tree.has(u)) deg++
+          if (deg <= 1) out.push({ k, v, ratio: value[v] / cost[v] })
+        })
+      })
+      return out.sort((x, y) => x.ratio - y.ratio)
+    }
+    /** Tira a folha e, em cascata, as pontas que ficaram sem valor. */
+    function cut(trees, k, v) {
+      const { g, value, picked } = ctxs[k]
+      const tree = trees[k]
+      const stack = [v]
+      while (stack.length) {
+        const x = stack.pop()
+        if (!tree.has(x) || picked.has(x)) continue
+        let deg = 0
+        let nb = -1
+        for (const u of g.adj[x]) if (tree.has(u)) (deg++, (nb = u))
+        if (deg > 1) continue
+        if (x !== v && value[x] > 0) continue
+        tree.delete(x)
+        if (nb >= 0) stack.push(nb)
+      }
+    }
+
+    let best = ctxs.map((c) => c.picked)
+    let bestVal = -1
+    let bestCost = Infinity
+    for (const alpha of [0.75, 1, 1.5, 2]) {
+      let trees = ctxs.map((c) => new Set(c.picked))
+      fill(trees, alpha)
+      // busca local: troca a folha de pior peso/ponto por outra compra, se melhorar
+      let cur = valueOf(trees)
+      for (let iter = 0; iter < 60; iter++) {
+        let improved = false
+        for (const leaf of leaves(trees).slice(0, 8)) {
+          const trial = trees.map((t) => new Set(t))
+          cut(trial, leaf.k, leaf.v)
+          fill(trial, alpha)
+          const val = valueOf(trial)
+          if (val > cur + 1e-9) {
+            trees = trial
+            cur = val
+            improved = true
+            break
+          }
+        }
+        if (!improved) break
+      }
+      const spent = spentOf(trees)
+      if (cur > bestVal + 1e-9 || (Math.abs(cur - bestVal) <= 1e-9 && spent < bestCost)) {
         best = trees
-        bestVal = val
+        bestVal = cur
         bestCost = spent
       }
     }

@@ -98,6 +98,7 @@ td img.ic { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var
 .gains { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-variant-numeric: tabular-nums; }
 .gains li { display: flex; justify-content: space-between; gap: 12px; }
 .gains li span:last-child { color: var(--accent); white-space: nowrap; }
+.gains li.sum { border-top: 1px solid var(--line); padding-top: 4px; font-weight: 600; }
 .hint { color: var(--muted); font-size: 12.5px; margin: 0; max-width: 65ch; }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
 input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
@@ -226,9 +227,11 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
       <div class="block">
         <h2>Montagem automática</h2>
         <div id="pool-row" class="field">
-          <label for="pool">Total de pontos para as 4 árvores</label>
-          <input class="num" type="number" id="pool" min="0" step="1" placeholder="desligado" style="width:110px">
+          <label for="pool">Melhor build com X pontos de Daevanion (4 árvores de PvE)</label>
+          <input class="num" type="number" id="pool" min="0" step="1" placeholder="X pontos" style="width:110px">
         </div>
+        <button type="button" class="link" id="pool-free" style="align-self:flex-start" hidden></button>
+        <ul class="gains" id="pool-split" hidden></ul>
         <div class="field">
           <label for="budget">Ou pontos só para esta árvore</label>
           <input class="num" type="number" id="budget" min="0" step="1" placeholder="desligado" style="width:110px">
