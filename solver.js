@@ -22,7 +22,7 @@
   if (typeof module === 'object' && module.exports) module.exports = factory()
   else root.DaevanionSolver = factory()
 })(typeof self !== 'undefined' ? self : this, function () {
-  const EXACT_LIMIT = 13
+  const EXACT_LIMIT = 12
   const MIN_WEIGHT = 1e-6
 
   /** Grafo da board: índice por node + lista de vizinhos em cruz. */
@@ -134,6 +134,7 @@
     let bestCost = Infinity
     let seed = 12345
     const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff)
+    const built = []
 
     for (let r = 0; r < restarts; r++) {
       const tree = new Set([g.start])
@@ -160,7 +161,13 @@
           pending.delete(v)
         }
       }
-      const improved = localSearch(g, w, terms, tree)
+      // construir é barato; a busca local (cara) só roda nas 3 melhores construções
+      const pruned = prune(g, w, terms, tree)
+      built.push({ tree: pruned, cost: setCost(w, pruned) })
+    }
+    built.sort((a, b) => a.cost - b.cost)
+    for (const b of built.slice(0, 3)) {
+      const improved = localSearch(g, w, terms, b.tree)
       const cost = setCost(w, improved)
       if (cost < bestCost - 1e-12) {
         bestCost = cost
@@ -367,9 +374,33 @@
   }
 
   /** Resolve só a parte obrigatória de uma board; devolve o contexto pro resto. */
+  // A parte obrigatória é o passo caro (DP exata) e se repete muito entre um
+  // cálculo e outro: guarda os últimos resultados pela entrada completa.
+  const BASE_CACHE = new Map()
+  const BASE_CACHE_MAX = 300
   function base(board, requiredIds, opts) {
     const o = opts || {}
-    const valueOf = o.valueOf || (() => 0)
+    const valueOf = o.valueOf !== Object.prototype.valueOf && typeof o.valueOf === 'function' ? o.valueOf : () => 0
+    const key = [
+      board.id ?? '', [...new Set(requiredIds)].sort().join(','), [...(o.blockedIds || [])].sort().join(','),
+      [...(o.freeIds || [])].sort().join(','), o.lambda || 0, o.forceHeuristic ? 1 : 0,
+      board.nodes.map((n) => valueOf(n) || 0).join(','),
+    ].join('|')
+    if (BASE_CACHE.has(key)) {
+      const hit = BASE_CACHE.get(key)
+      BASE_CACHE.delete(key)
+      BASE_CACHE.set(key, hit) // LRU: volta para o fim
+      return hit.ok ? { ...hit, picked: new Set(hit.picked) } : hit
+    }
+    const out = baseUncached(board, requiredIds, o)
+    BASE_CACHE.set(key, out)
+    if (BASE_CACHE.size > BASE_CACHE_MAX) BASE_CACHE.delete(BASE_CACHE.keys().next().value)
+    return out.ok ? { ...out, picked: new Set(out.picked) } : out
+  }
+
+  function baseUncached(board, requiredIds, opts) {
+    const o = opts || {}
+    const valueOf = o.valueOf !== Object.prototype.valueOf && typeof o.valueOf === 'function' ? o.valueOf : () => 0
     const g = buildGraph(board, o.blockedIds)
     if (g.start < 0) return { ok: false, reason: 'no-start' }
 

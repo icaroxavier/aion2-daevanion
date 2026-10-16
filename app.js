@@ -6,16 +6,16 @@
   const int = (x, max) => Math.min(max === undefined ? 1e6 : max, Math.max(0, Math.floor(+x || 0)))
 
   // ---- classes e papéis -----------------------------------------------------
-  // por ora só DPS (Tank e Healer ficam para depois)
+  // DPS em todas; Tank no Gladiador e no Templário; Healer no Clérigo e no Encantador
   const CLASSES = [
     { slug: 'gladiator', name: 'Gladiador', roles: ['dps', 'tank'] },
-    { slug: 'templar', name: 'Templário', roles: ['dps'] },
+    { slug: 'templar', name: 'Templário', roles: ['dps', 'tank'] },
     { slug: 'ranger', name: 'Arqueiro', roles: ['dps'] },
     { slug: 'assassin', name: 'Assassino', roles: ['dps'] },
     { slug: 'elementalist', name: 'Espiritualista', roles: ['dps'] },
     { slug: 'sorcerer', name: 'Mago', roles: ['dps'] },
-    { slug: 'cleric', name: 'Clérigo', roles: ['dps'] },
-    { slug: 'chanter', name: 'Encantador', roles: ['dps'] },
+    { slug: 'cleric', name: 'Clérigo', roles: ['dps', 'healer'] },
+    { slug: 'chanter', name: 'Encantador', roles: ['dps', 'healer'] },
   ]
   // Peso padrão por stat (chave em inglês, estável) em cada papel. Stat que não
   // aparece vale 0 — no DPS, tudo que é defensivo.
@@ -59,14 +59,22 @@
         'Attack Bonus': 0.3, 'PvP Attack': 0.3, 'Critical Hit': 0.3, 'Damage Boost': 5, 'PvP Damage Boost': 5, 'Multi-hit Chance': 5,
         'Critical Damage Boost': 7.5, 'Combat Speed': 10.5, 'Cooldown Reduction': 15,
       },
-      // Habilidades com peso pronto (por nome, estimativa nossa): o tank não
-      // precisa escolher antes da montagem automática. Defesa e provocação 10,
-      // controle 4, o resto (dano/ameaça) 3.
-      skills: {
-        'Protection Armor': 10, 'Survival Stance': 10, 'Survival Willpower': 10, 'Blood Absorption': 10, 'Mocking Blade': 10, Defiance: 10,
-        'Aerial Snare': 4, 'Ankle Slice': 4,
+      // a montagem automática não espera a escolha de ativas (os pesos das
+      // habilidades vêm de skill-model.js)
+      autoSkills: true,
+    },
+    // Healer (Clérigo, Encantador). Escala: 1,0 ≈ a cura que +3 de Ataque dá
+    // (as curas escalam com Ataque, "+100% Attack" nos tooltips). Estimativas:
+    // velocidade e recarga valem como no DPS (mais curas por segundo); crítico
+    // cura com crítico (suposição); um pouco de sobrevivência; MP ajuda.
+    healer: {
+      name: 'Healer',
+      weights: {
+        'Attack Bonus': 1, 'Critical Hit': 1, 'Critical Damage Boost': 12, 'Combat Speed': 35, 'Cooldown Reduction': 25,
+        HP: 3, 'Defense Bonus': 2, 'Damage Tolerance': 8, MP: 1, 'Critical Hit Resist': 0.5,
+        'PvP Attack': 1, 'PvP Defense': 2, 'PvP Damage Tolerance': 8, 'Status Effect Resist': 1,
       },
-      skillDefault: 3,
+      autoSkills: true,
     },
   }
   const ABBR = {
@@ -237,32 +245,27 @@
   const ready = () => !!(state.cls && cc().role && boards.length)
 
   // ---- habilidades ------------------------------------------------------------
-  // Ativas: quem decide é o jogador (cada um monta a rotação de um jeito). Uma
-  // ativa marcada vale SKILL_BASE; desmarcada vale 0.
-  // Passivas: entram marcadas, com peso estimado pela amostra de personagens
-  // nível 45 da classe (data/skill-stats.js): % que aprendeu × (nível médio
-  // relativo ao da skill mais upada)². É investimento observado, não dano medido.
-  // SKILL_BASE é chute nosso: +1 nível numa skill principal ≈ 10 nodes de ataque.
-  const SKILL_BASE = 10
+  // Quem decide quais ativas importam é o jogador; as passivas entram marcadas.
+  // O peso de cada uma (marcada) vem de skill-model.js: dano/s por nível nas
+  // ativas, efeito por nível nas passivas, convertidos para a escala do papel.
+  const MODEL = {}
+  const model = () => {
+    const k = state.cls + ':' + cc().role
+    if (!MODEL[k]) MODEL[k] = window.DaevanionSkillModel.weights((window.DAEVANION_SKILL_DETAILS || {})[state.cls], stats(), cc().role)
+    return MODEL[k]
+  }
+  const modelWeight = (name) => (model()[name] || { weight: 0 }).weight
+  const HOW = { 'dano/s': 'dano por segundo', 'cura/s': 'cura por segundo', efeito: 'efeito por nível', amostra: 'uso entre jogadores', tipo: 'tipo da skill', 'efeito de outro papel': 'efeito não serve para este papel' }
   const stats = () => (window.DAEVANION_SKILL_STATS || {})[state.cls] || { skills: {} }
   const skillStat = (name) => stats().skills[name]
   const isPassive = (name) => (skillStat(name) || {}).cat === 'Passive'
-  const rolePreset = () => ROLES[cc().role]?.skills
   // padrão em todo papel: ativas desmarcadas, passivas marcadas
   const defaultPicked = (name) => isPassive(name)
   const skillPicked = (name) => {
     const v = cc().skills[name]
     return v === undefined ? defaultPicked(name) : !!v
   }
-  const presetWeight = (name) => (rolePreset()[name] ?? ROLES[cc().role].skillDefault)
-  function passiveEstimate(name) {
-    const st = stats()
-    const s = st.skills[name]
-    if (!s) return SKILL_BASE / 2
-    const top = (st._top = st._top || Math.max(...Object.values(st.skills).map((x) => x.avg)))
-    return round1(SKILL_BASE * s.learned * Math.pow(s.avg / top, 2))
-  }
-  const skillWeight = (name) => (!skillPicked(name) ? 0 : rolePreset() ? presetWeight(name) : isPassive(name) ? passiveEstimate(name) : SKILL_BASE)
+  const skillWeight = (name) => (skillPicked(name) ? modelWeight(name) : 0)
   /** Habilidades que têm node em alguma árvore da classe (uma entrada por skill). */
   function classSkills() {
     const seen = new Map()
@@ -276,7 +279,7 @@
   // garantir uma habilidade na build (seção da montagem automática) também conta como escolha
   const anySkillRequired = () =>
     boards.some((b) => cfg(b).reqTypes.some((k) => k.startsWith('skill:'))) || Object.keys(cc().guarantee || {}).some((k) => k.startsWith('skill:'))
-  const skillsSettled = () => !!rolePreset() || cc().skillsDone || anyActivePicked() || anySkillRequired()
+  const skillsSettled = () => !!ROLES[cc().role]?.autoSkills || cc().skillsDone || anyActivePicked() || anySkillRequired()
 
   // ---- pesos, obrigatórios, cálculo -----------------------------------------
   const roleWeight = (t) => {
@@ -520,11 +523,8 @@
         const id = 'sk-' + s.name.replace(/[^a-z0-9]+/gi, '-')
         const label = document.createElement('label')
         label.className = 'skillpick'
-        const hint = rolePreset()
-          ? `peso do papel ${ROLES[cc().role].name}: ${fmt(presetWeight(s.name))}`
-          : passive
-          ? `peso estimado ${fmt(passiveEstimate(s.name))}`
-          : st ? `na barra de ${Math.round(st.equipped * 100)}% · nível médio ${fmt(st.avg)}` : ''
+        const m = model()[s.name] || { weight: 0, how: '' }
+        const hint = `peso ${fmt(m.weight)} · ${HOW[m.how] || m.how}` + (!passive && st ? ` · na barra de ${Math.round(st.equipped * 100)}%` : '')
         label.innerHTML = `<input type="checkbox" id="${id}">${s.icon ? `<img src="${s.icon}" alt="">` : ''}<span><b></b><small>${hint}</small></span>`
         label.querySelector('b').textContent = s.label
         const cb = label.querySelector('input')
@@ -623,7 +623,7 @@
         badge.textContent = r.pooled ? `Montagem automática (estimativa): ${r.points} pontos nesta árvore` : `Montagem automática (estimativa): ${r.points} de ${cfg(b).budget} pontos`
       } else {
         badge.className = 'badge' + (r.exact ? '' : ' approx')
-        badge.textContent = r.exact ? 'Caminho ótimo' : 'Aproximado (mais de 13 obrigatórios)'
+        badge.textContent = r.exact ? 'Caminho ótimo' : 'Aproximado (mais de 12 obrigatórios)'
       }
       $('res-nodes').textContent = fresh.length
       $('res-owned').textContent = ownedSet.size
@@ -877,15 +877,54 @@
     changed(active)
     $('info').innerHTML = describe(active, active.byId.get(id))
   }
-  function changed(b) {
-    compute(b)
+  // ---- cálculo com espera: mudanças seguidas viram um cálculo só ----------
+  // A tela atualiza na hora o que foi marcado; o cálculo espera CALC_DELAY sem
+  // novas mudanças e então roda, com o aviso "Calculando…".
+  const CALC_DELAY = 1500
+  let calcTimer = null
+  function setStatus(kind) {
+    const el = $('calc-status')
+    el.hidden = !kind
+    el.className = 'calc-status ' + (kind || '')
+    el.textContent = kind === 'busy' ? 'Calculando…' : kind === 'pending' ? 'Alterações pendentes: o cálculo começa em instantes' : ''
+    document.body.classList.toggle('calculating', kind === 'busy')
+  }
+  function schedule() {
+    clearTimeout(calcTimer)
+    setStatus('pending')
+    calcTimer = setTimeout(runNow, CALC_DELAY)
+  }
+  function runNow() {
+    clearTimeout(calcTimer)
+    setStatus('busy')
+    // deixa o navegador pintar o aviso antes de travar no cálculo
+    setTimeout(() => {
+      try {
+        recomputeAll()
+        save()
+        renderAll()
+      } finally {
+        setStatus(null)
+      }
+    }, 40)
+  }
+  function changed() {
     save()
-    renderTabs(); renderGrid(); renderResult(); renderAuto(); renderEffects()
+    renderGrid(); renderAuto(); renderSkills()
+    schedule()
   }
   function renderAll() {
+    // redesenhar recria os campos: guarda e devolve o foco/cursor de quem está digitando
+    const ae = document.activeElement
+    const focusId = ae && ae.id && ae.tagName === 'INPUT' ? ae.id : null
+    const caret = focusId && ae.type === 'text' ? ae.selectionStart : null
     renderChooser()
     if (!ready()) return
     renderTabs(); renderSkills(); renderGrid(); renderTypes(); renderResult(); renderEffects(); renderLambda(); renderAuto(); renderSources(); renderChar()
+    if (focusId && $(focusId) && document.activeElement !== $(focusId)) {
+      $(focusId).focus()
+      if (caret != null) try { $(focusId).setSelectionRange(caret, caret) } catch (e) {}
+    }
   }
   /** Carrega a classe atual (se houver) e redesenha tudo. */
   async function open() {
@@ -901,10 +940,16 @@
       return
     }
     active = boards[0]
-    if (!cc().role) cc().role = classInfo().roles[0]
-    recomputeAll()
-    save()
-    renderAll()
+    if (!cc().role || !classInfo().roles.includes(cc().role)) cc().role = classInfo().roles[0]
+    setStatus('busy')
+    await new Promise((r) => setTimeout(r, 40))
+    try {
+      recomputeAll()
+      save()
+      renderAll()
+    } finally {
+      setStatus(null)
+    }
   }
   function pickClass(slug) {
     state.cls = slug
@@ -914,7 +959,7 @@
     cc().role = r
     recomputeAll(); save(); renderAll()
   }
-  const refresh = () => { recomputeAll(); save(); renderAll() }
+  const refresh = () => { save(); renderAll(); schedule() }
 
   $('mode-req').onclick = () => setMode('req')
   $('mode-block').onclick = () => setMode('block')

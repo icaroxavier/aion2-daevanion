@@ -2,8 +2,9 @@
 
 Calculadora de caminho para a Daevanion Board do Aion 2, para as 8 classes.
 
-Você escolhe a classe e o papel: DPS em todas (defensivos começam em 0) e Tank
-no Gladiador (pesos por vida efetiva estimada, com pesos de habilidade prontos).
+Você escolhe a classe e o papel: DPS em todas (defensivos começam em 0), Tank no
+Gladiador e no Templário (vida efetiva estimada) e Healer no Clérigo e no
+Encantador (cura estimada).
 
 Você marca o que é obrigatório (um node específico ou um tipo inteiro) e dá um
 peso para cada tipo de node de cada árvore. A página calcula o conjunto de nodes
@@ -16,7 +17,7 @@ O problema é uma árvore de Steiner com peso nos nodes: achar o conjunto conexo
 (vizinhança em cruz) que contém o início e todos os obrigatórios minimizando
 `custo − t · peso`.
 
-- Até 13 obrigatórios por árvore: solução **exata** (DP de Dreyfus–Wagner).
+- Até 12 obrigatórios por árvore: solução **exata** (DP de Dreyfus–Wagner).
 - Acima disso: heurística (caminho mais curto com reinícios + busca local),
   marcada na tela como aproximada.
 - Com o critério em 0, menos pontos sempre vence e o peso só desempata.
@@ -62,10 +63,15 @@ usar um orçamento só para a árvore aberta.
 
 ## Pesos das habilidades
 
-`data/skill-stats.js` (gerado por `tools/fetch-skill-stats.js`) agrega, de uma
-amostra de personagens nível 45 por classe, o % com cada skill na barra e o
-nível médio. Isso vira o peso padrão de cada node de habilidade. Só números
-agregados são guardados.
+`skill-model.js` estima o peso de +1 nível de cada habilidade, por classe e papel:
+
+- Ativas com dano (ou cura, no Healer): dano-base ganho por nível × usos por
+  segundo (cooldown, ~1 s por conjuração), dividido pelo que +3 de Ataque rende
+  na mesma rotação. Dados de `data/skill-details.js` (`tools/fetch-skill-details.js`,
+  páginas de skill do MetaBot).
+- Passivas: quanto cada efeito sobe por nível (tooltip no nível 1 e no máximo),
+  convertido pelo valor do atributo no papel.
+- O resto cai na amostra de uso (`data/skill-stats.js`, `tools/fetch-skill-stats.js`).
 
 `node tools/dev-server.js` sobe a página com a função `/api/char` localmente.
 

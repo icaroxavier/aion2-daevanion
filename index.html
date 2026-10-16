@@ -128,6 +128,13 @@ h3 { font-size: 13px; font-weight: 600; margin: 0; }
 .skillpick small, td > small { color: var(--muted); font-size: 12px; }
 td > small { display: block; margin: 0; }
 .block.attention { border-color: var(--warn); }
+.calc-status { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 10; background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 8px 14px; font-size: 13px; box-shadow: 0 4px 18px rgba(0, 0, 0, .25); display: flex; align-items: center; gap: 8px; }
+.calc-status.busy { border-color: var(--accent); }
+.calc-status.busy::before { content: ''; width: 12px; height: 12px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+.calc-status.pending { color: var(--muted); }
+body.calculating #grid, body.calculating .side { opacity: .55; transition: opacity .15s; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .calc-status.busy::before { animation: none; } }
 table.eff + table.eff { margin-top: 10px; }
 table.eff td { padding: 3px 8px; }
 table.eff tr.diff td { color: var(--accent); font-weight: 600; }
@@ -195,7 +202,7 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
 
   <div class="block" id="skills-block">
     <h2>Minhas habilidades</h2>
-    <p class="hint">Marque as ativas que importam para você: cada +1 nível delas passa a valer 10 (ajustável na tabela de pesos). As passivas já entram marcadas, com peso estimado pelo quanto jogadores nível 45 da classe investem nelas; desmarque as que não interessam.</p>
+    <p class="hint">Marque as ativas que você usa; as passivas já entram marcadas. Cada uma mostra o peso estimado de +1 nível para o seu papel (dano ou cura por segundo nas ativas, efeito por nível nas passivas), na mesma escala dos atributos. Desmarcada vale 0; dá para ajustar na tabela de pesos.</p>
     <p class="hint err" id="skills-note" hidden>A montagem automática está esperando: marque ao menos uma ativa, ou diga que não quer priorizar nenhuma.</p>
     <h3>Ativas</h3>
     <div class="skills" id="skills-active"></div>
@@ -338,9 +345,12 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
 
   </div>
 
-  <p class="hint">Dados das boards: planner do GameWith (base nas páginas oficiais do AION2), global, 06/10/2026. O custo por node é estimado pela raridade (1/2/3/4). Até 13 obrigatórios por árvore o resultado é o ótimo exato; acima disso é uma aproximação.</p>
+  <p class="hint">Dados das boards: planner do GameWith (base nas páginas oficiais do AION2), global, 06/10/2026. O custo por node é estimado pela raridade (1/2/3/4). Até 12 obrigatórios por árvore o resultado é o ótimo exato; acima disso é uma aproximação.</p>
 </div>
 
+<div id="calc-status" class="calc-status" role="status" aria-live="polite" hidden></div>
 <script src="data/skill-stats.js"></script>
+<script src="data/skill-details.js"></script>
+<script src="skill-model.js"></script>
 <script src="solver.js"></script>
 <script src="app.js"></script>
