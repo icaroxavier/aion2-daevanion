@@ -1,0 +1,74 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>gerador de imagens</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<body style="margin:0;background:#10131c">
+<script>
+// Gera os PNGs do site (ícones e imagem de compartilhamento) num canvas.
+// Abra com o dev-server e chame window.render(): devolve { nome: dataURL }.
+async function img(src) {
+  const i = new Image()
+  i.src = src
+  await i.decode()
+  return i
+}
+window.render = async function () {
+  await document.fonts.load('600 64px Cinzel')
+  await document.fonts.load('400 30px "IBM Plex Sans"')
+  const icon = await img('/favicon.svg')
+  const out = {}
+  for (const size of [32, 180, 192, 512]) {
+    const c = document.createElement('canvas')
+    c.width = c.height = size
+    c.getContext('2d').drawImage(icon, 0, 0, size, size)
+    out['icon-' + size + '.png'] = c.toDataURL('image/png')
+  }
+  // imagem de compartilhamento 1200×630
+  const c = document.createElement('canvas')
+  c.width = 1200
+  c.height = 630
+  const x = c.getContext('2d')
+  x.fillStyle = '#10131c'
+  x.fillRect(0, 0, 1200, 630)
+  // grade de nodes à direita, com um caminho aceso
+  const cell = 46, gap = 8, ox = 690, oy = 95
+  const path = new Set(['4,4', '4,3', '4,2', '3,2', '2,2', '2,1', '2,0', '5,4', '6,4', '6,5', '6,6', '4,5', '4,6', '4,7', '3,7'])
+  for (let r = 0; r < 9; r++) for (let q = 0; q < 9; q++) {
+    if ((r * 7 + q * 3) % 5 === 0 && !path.has(q + ',' + r) && !(q === 4 && r === 4)) continue
+    const px = ox + q * (cell + gap), py = oy + r * (cell + gap)
+    const on = path.has(q + ',' + r)
+    const gold = (q === 0 || q === 8) && (r === 0 || r === 8)
+    x.fillStyle = on ? '#26505f' : '#1e2434'
+    x.strokeStyle = gold ? '#e0a53a' : on ? '#5ec8d8' : '#2b3347'
+    x.lineWidth = 3
+    x.beginPath()
+    x.roundRect(px, py, cell, cell, 6)
+    x.fill()
+    x.stroke()
+  }
+  // início (losango)
+  x.save()
+  x.translate(ox + 4 * (cell + gap) + cell / 2, oy + 4 * (cell + gap) + cell / 2)
+  x.rotate(Math.PI / 4)
+  x.fillStyle = '#e8e6df'
+  x.fillRect(-17, -17, 34, 34)
+  x.restore()
+  // texto
+  x.drawImage(icon, 70, 90, 96, 96)
+  x.fillStyle = '#e8e6df'
+  x.font = '600 74px Cinzel'
+  x.fillText('Rota', 70, 290)
+  x.fillText('Daevanion', 70, 372)
+  x.fillStyle = '#8f97ab'
+  x.font = '400 30px "IBM Plex Sans"'
+  x.fillText('Planner da Daevanion Board do Aion 2', 70, 440)
+  x.fillText('Caminho mais barato · 8 classes', 70, 482)
+  x.fillStyle = '#5ec8d8'
+  x.font = '500 26px "IBM Plex Sans"'
+  x.fillText('aion2-daevanion.vercel.app', 70, 560)
+  out['og.png'] = c.toDataURL('image/png')
+  return out
+}
+</script>
+</body>

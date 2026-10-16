@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /tools/
+
+Sitemap: https://aion2-daevanion.vercel.app/sitemap.xml

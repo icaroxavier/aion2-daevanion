@@ -2,7 +2,50 @@
 <html lang="pt-BR">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Calcula o caminho mais barato na Daevanion Board (Aion 2), para qualquer classe, passando pelos nodes obrigatórios.">
+<meta name="description" content="Planner e calculadora da Daevanion Board do Aion 2: escolha classe e papel, marque os nodes obrigatórios e veja o caminho mais barato em pontos, a melhor build com X pontos e o efeito de cada árvore. Importa seu personagem do site oficial.">
+<meta name="keywords" content="Aion 2, Aion2, Daevanion, Daevanion board, planner, calculadora, build, Gladiador, Templário, Arqueiro, Assassino, Espiritualista, Mago, Clérigo, Encantador, árvore, pontos">
+<link rel="canonical" href="https://aion2-daevanion.vercel.app/">
+<meta name="theme-color" content="#10131c">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Rota Daevanion">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:title" content="Rota Daevanion · Planner da Daevanion Board do Aion 2">
+<meta property="og:description" content="Caminho mais barato na Daevanion Board, melhor build com X pontos e pesos por classe e papel. Grátis, sem login.">
+<meta property="og:url" content="https://aion2-daevanion.vercel.app/">
+<meta property="og:image" content="https://aion2-daevanion.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Rota Daevanion: planner da Daevanion Board do Aion 2">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Rota Daevanion · Planner da Daevanion Board do Aion 2">
+<meta name="twitter:description" content="Caminho mais barato na Daevanion Board, melhor build com X pontos e pesos por classe e papel.">
+<meta name="twitter:image" content="https://aion2-daevanion.vercel.app/og.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Rota Daevanion",
+  "url": "https://aion2-daevanion.vercel.app/",
+  "description": "Planner e calculadora da Daevanion Board do Aion 2: escolha classe e papel, marque os nodes obrigatórios e veja o caminho mais barato em pontos, a melhor build com X pontos e o efeito de cada árvore. Importa seu personagem do site oficial.",
+  "applicationCategory": "GameApplication",
+  "operatingSystem": "Any",
+  "inLanguage": "pt-BR",
+  "isAccessibleForFree": true,
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "BRL"
+  },
+  "about": {
+    "@type": "VideoGame",
+    "name": "Aion 2"
+  }
+}
+</script>
 <title>Rota Daevanion</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
@@ -128,6 +171,7 @@ h3 { font-size: 13px; font-weight: 600; margin: 0; }
 .skillpick small, td > small { color: var(--muted); font-size: 12px; }
 td > small { display: block; margin: 0; }
 .block.attention { border-color: var(--warn); }
+.about p { margin: 0; max-width: 75ch; color: var(--muted); }
 .calc-status { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 10; background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 8px 14px; font-size: 13px; box-shadow: 0 4px 18px rgba(0, 0, 0, .25); display: flex; align-items: center; gap: 8px; }
 .calc-status.busy { border-color: var(--accent); }
 .calc-status.busy::before { content: ''; width: 12px; height: 12px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
@@ -344,6 +388,13 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
   </div>
 
   </div>
+
+  <section class="block about" aria-labelledby="about-title">
+    <h2 id="about-title">Sobre a Rota Daevanion</h2>
+    <p>Calculadora gratuita da Daevanion Board do Aion 2 para as 8 classes: Gladiador, Templário, Arqueiro, Assassino, Espiritualista, Mago, Clérigo e Encantador, nos papéis DPS, Tank e Healer. Marque os nodes que você quer em Nezekan, Zikel, Vaizel, Triniel e Azphel e a página calcula o caminho que custa menos pontos a partir do início, preferindo os nodes de maior peso para o seu papel.</p>
+    <p>Também monta a melhor build com X pontos de Daevanion dividindo entre as quatro árvores de PvE, garante habilidades, passivas e nodes dourados, soma o efeito de cada árvore como na aba Board Effect do jogo, importa os nodes já abertos do seu personagem (servidores globais) e salva tudo no link ou em arquivo.</p>
+  </section>
+  <noscript><p class="hint">Esta calculadora precisa de JavaScript para funcionar.</p></noscript>
 
   <p class="hint">Dados das boards: planner do GameWith (base nas páginas oficiais do AION2), global, 06/10/2026. O custo por node é estimado pela raridade (1/2/3/4). Até 12 obrigatórios por árvore o resultado é o ótimo exato; acima disso é uma aproximação.</p>
 </div>
