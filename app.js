@@ -248,8 +248,8 @@
   const skillStat = (name) => stats().skills[name]
   const isPassive = (name) => (skillStat(name) || {}).cat === 'Passive'
   const rolePreset = () => ROLES[cc().role]?.skills
-  // padrão: no DPS só as passivas vêm marcadas; num papel com pesos prontos, todas
-  const defaultPicked = (name) => (rolePreset() ? true : isPassive(name))
+  // padrão em todo papel: ativas desmarcadas, passivas marcadas
+  const defaultPicked = (name) => isPassive(name)
   const skillPicked = (name) => {
     const v = cc().skills[name]
     return v === undefined ? defaultPicked(name) : !!v
@@ -942,6 +942,7 @@
   $('budget').oninput = () => { cfg(active).budget = int($('budget').value); debounced($('budget'), refresh) }
   $('pool-free').onclick = () => { cc().pool = sourcesTotals().free; refresh() }
   $('auto-off').onclick = () => { cc().pool = 0; boards.forEach((b) => (cfg(b).budget = 0)); refresh() }
+  $('skills-reset').onclick = () => { cc().skills = {}; refresh() }
   $('skills-none').onclick = () => { cc().skillsDone = true; refresh() }
   $('skills-from-char').onclick = () => {
     for (const s of cc().char?.skills || []) if (s.cat !== 'Passive') cc().skills[s.name] = !!s.equip
