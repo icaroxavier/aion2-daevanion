@@ -787,12 +787,16 @@
     $('budget-max').textContent = pooled
       ? 'Com o total das 4 árvores ligado, a divisão entre elas é automática.'
       : `Completar o que falta desta árvore custa ${left} pontos.`
-    $('pool-row').hidden = pvp
+    // Ariel e Azphel: só o orçamento da própria árvore (sem total compartilhado,
+    // divisão entre as 4 árvores nem "garantir", que valem só para elas)
+    $('budget-label').textContent = pvp ? `Melhor build com X pontos de ${active.name}` : 'Ou pontos só para esta árvore'
+    $('budget').placeholder = pvp ? 'X pontos' : 'desligado'
+    for (const id of ['pool-row', 'guarantee', 'pool-shared']) $(id).hidden = pvp
     $('pool-note').textContent = pvp ? OWN_POINTS[active.name] : ''
     // divisão da melhor build entre as 4 árvores
     const split = $('pool-split')
     const pve = boards.filter((b) => !ownPoints(b))
-    const on = poolActive() && pve.every((b) => results[b.id]?.ok)
+    const on = !pvp && poolActive() && pve.every((b) => results[b.id]?.ok)
     split.hidden = !on
     if (on) {
       const tot = pve.reduce((a, b) => ({ p: a.p + results[b.id].points, w: a.w + results[b.id].attack }), { p: 0, w: 0 })
@@ -801,7 +805,7 @@
         `<li class="sum"><span>Total</span><span>${tot.p} de ${cc().pool} pts · peso ${fmt(tot.w)}</span></li>`
     }
     renderGuarantee()
-    $('pool-free').hidden = !(sourcesTotals().free > 0)
+    $('pool-free').hidden = pvp || !(sourcesTotals().free > 0)
     $('pool-free').textContent = `Usar meus ${sourcesTotals().free} pontos disponíveis`
   }
 

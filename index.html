@@ -79,8 +79,9 @@
   color-scheme: light;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 14px; line-height: 1.45; }
-.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: flex; flex-direction: column; gap: 16px; }
+.wrap { max-width: 1440px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: flex; flex-direction: column; gap: 16px; }
 header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
 h1 { font-family: var(--display); font-size: 26px; font-weight: 600; letter-spacing: .04em; margin: 0; }
 header p { margin: 0; color: var(--muted); }
@@ -94,8 +95,11 @@ button, input, textarea { font: inherit; color: inherit; }
 .tab[aria-selected="true"], .tab[aria-pressed="true"] { background: var(--cell); border-color: var(--accent); }
 .tab[aria-selected="true"] small { color: var(--accent); }
 
-.main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 16px; align-items: start; }
-@media (max-width: 960px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(380px, 460px); grid-template-rows: auto 1fr; gap: 16px; align-items: start; }
+/* a coluna da direita ocupa as duas linhas; "Tipos de node" sobe para baixo da board */
+.main > .side { grid-column: 2; grid-row: 1 / span 2; }
+.main > #tipos { grid-column: 1; grid-row: 2; min-width: 0; }
+@media (max-width: 960px) { .main { grid-template-columns: minmax(0, 1fr); } .main > .side, .main > #tipos { grid-column: auto; grid-row: auto; } }
 .boardcol { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
@@ -103,7 +107,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .seg button[aria-pressed="true"] { background: var(--cell); color: var(--fg); }
 .link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; }
 
-.grid { display: grid; gap: 3px; container-type: inline-size; max-width: 640px; }
+.grid { display: grid; gap: 3px; container-type: inline-size; max-width: 760px; }
 .cell { aspect-ratio: 1; min-width: 0; padding: 0; border: 1.5px solid var(--common); border-radius: 3px; background: var(--cell); color: var(--muted); cursor: pointer; font-size: clamp(6px, 2cqw, 11px); font-weight: 500; line-height: 1; display: grid; place-items: center; overflow: hidden; }
 .cell.skill { border-radius: 50%; }
 .cell.g-Rare { border-color: var(--rare); } .cell.g-Legend { border-color: var(--legend); } .cell.g-Unique { border-color: var(--unique); }
@@ -147,7 +151,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
 
 .tablewrap { overflow-x: auto; }
-.scrolly { max-height: 430px; overflow-y: auto; }
+.scrolly { max-height: 640px; overflow-y: auto; }
 .scrolly thead th { position: sticky; top: 0; background: var(--panel); }
 table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
 th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -303,7 +307,7 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
         </div>
         <button type="button" class="link" id="pool-free" style="align-self:flex-start" hidden></button>
         <ul class="gains" id="pool-split" hidden></ul>
-        <details class="guarantee" open>
+        <details class="guarantee" id="guarantee" open>
           <summary>Garantir na build</summary>
           <p class="hint">Diga quantos nodes de cada um entram obrigatoriamente (Máx = todos). Com menos que o máximo, a página escolhe os mais baratos de alcançar. O resto dos pontos vai para o maior peso.</p>
           <h3>Habilidades ativas</h3>
@@ -314,26 +318,12 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
           <div class="chips" id="g-gold"></div>
         </details>
         <div class="field">
-          <label for="budget">Ou pontos só para esta árvore</label>
+          <label for="budget" id="budget-label">Ou pontos só para esta árvore</label>
           <input class="num" type="number" id="budget" min="0" step="1" placeholder="desligado" style="width:110px">
         </div>
         <button type="button" class="link" id="auto-off" style="align-self:flex-start">Desligar a montagem automática</button>
-        <p class="hint">A página primeiro liga os obrigatórios e depois gasta o resto nos nodes de maior peso por ponto. Nezekan, Zikel, Vaizel e Triniel dividem os mesmos pontos. <span id="budget-max"></span> <span id="pool-note"></span></p>
+        <p class="hint">A página primeiro liga os obrigatórios e depois gasta o resto nos nodes de maior peso por ponto. <span id="pool-shared">Nezekan, Zikel, Vaizel e Triniel dividem os mesmos pontos.</span> <span id="budget-max"></span> <span id="pool-note"></span></p>
       </div>
-        <p class="hint">Com um valor aqui, a página primeiro liga os obrigatórios e depois gasta o resto nos nodes de maior peso por ponto. <span id="budget-max"></span></p>
-      </div>
-      <div class="block" id="tipos">
-        <h2 id="types-title">Tipos de node</h2>
-        <p class="hint">Os pesos começam no padrão do papel escolhido, na escala em que 1 = um node comum de Ataque +3; os nodes únicos (%) valem de 16 a 35 pelo dano estimado. Os pesos das habilidades vêm da seção “Minhas habilidades”. O peso diz o quanto você quer aquele tipo no caminho (0 = indiferente). “Obrigatório” força pegar todos os nodes daquele tipo nesta árvore. Para obrigar só um node específico, clique nele na board.</p>
-        <button type="button" class="link" id="reset-weights" style="align-self:flex-start">Voltar aos pesos padrão do papel</button>
-        <div class="tablewrap scrolly">
-          <table>
-            <thead><tr><th class="c">Obrigatório</th><th>Tipo</th><th class="r">Peso</th><th class="r">Pegos</th></tr></thead>
-            <tbody id="types"></tbody>
-          </table>
-        </div>
-      </div>
-
       <div class="block">
         <h2 id="eff-title">Efeito da board</h2>
         <p class="hint">Igual à aba “Board Effect” do jogo, com os mesmos nomes, para conferir. <span id="eff-cols">“Plano” é o que já está aberto mais o caminho calculado; as linhas destacadas são as que ainda faltam.</span></p>
@@ -358,6 +348,19 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
         <label for="lambda"><span id="lambda-label"></span></label>
         <input type="range" id="lambda" min="0" max="1" step="0.05" value="0">
         <p class="hint">Em 0, menos pontos sempre vence e o peso só desempata caminhos de mesmo custo. Acima de 0, o caminho aceita gastar esse tanto de pontos a mais para cada 1,0 de peso que ganhar.</p>
+      </div>
+    </div>
+
+    <!-- no desktop fica embaixo da board (coluna da esquerda); no celular, depois do resultado -->
+    <div class="block" id="tipos">
+      <h2 id="types-title">Tipos de node</h2>
+      <p class="hint">Os pesos começam no padrão do papel escolhido, na escala em que 1 = um node comum de Ataque +3; os nodes únicos (%) valem de 16 a 35 pelo dano estimado. Os pesos das habilidades vêm da seção “Minhas habilidades”. O peso diz o quanto você quer aquele tipo no caminho (0 = indiferente). “Obrigatório” força pegar todos os nodes daquele tipo nesta árvore. Para obrigar só um node específico, clique nele na board.</p>
+      <button type="button" class="link" id="reset-weights" style="align-self:flex-start">Voltar aos pesos padrão do papel</button>
+      <div class="tablewrap scrolly">
+        <table>
+          <thead><tr><th class="c">Obrigatório</th><th>Tipo</th><th class="r">Peso</th><th class="r">Pegos</th></tr></thead>
+          <tbody id="types"></tbody>
+        </table>
       </div>
     </div>
   </div>
