@@ -100,8 +100,15 @@ async function build(slug) {
       }),
     })),
   }
+  // boards que o GameWith não tem (Ariel, vinda de tools/fetch-official.js) ficam como estão
+  const file = path.join(ROOT, 'data', slug + '.js')
+  if (fs.existsSync(file)) {
+    const have = new Set(data.boards.map((b) => b.id))
+    const keep = require(file).boards.filter((b) => !have.has(b.id))
+    data.boards = [...data.boards, ...keep].sort((a, b) => a.id - b.id)
+  }
   const out =
-    '// Gerado por tools/fetch-data.js — não editar à mão.\n' +
+    '// Gerado por tools/fetch-data.js (+ tools/fetch-official.js) — não editar à mão.\n' +
     ';(function (root, data) {\n' +
     "  if (typeof module === 'object' && module.exports) module.exports = data\n" +
     '  else (root.DAEVANION_DATA = root.DAEVANION_DATA || {})[data.class] = data\n' +
@@ -109,7 +116,7 @@ async function build(slug) {
     JSON.stringify(data) +
     ')\n'
   fs.mkdirSync(path.join(ROOT, 'data'), { recursive: true })
-  fs.writeFileSync(path.join(ROOT, 'data', slug + '.js'), out)
+  fs.writeFileSync(file, out)
   console.log(slug.padEnd(13), data.className.padEnd(14), data.boards.map((b) => b.name + ':' + b.nodes.length).join(' '), '| ícones', done.size, missing.size ? '| SEM ÍCONE: ' + [...missing].join(', ') : '')
   return data
 }

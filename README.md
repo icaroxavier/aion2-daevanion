@@ -34,15 +34,20 @@ Links antigos (v1) continuam abrindo.
 
 - `index.html` + `app.js` — a página (sem build, sem dependências).
 - `solver.js` — o algoritmo, puro; roda no navegador e no Node.
-- `data/<classe>.js` — as 5 boards de cada classe, carregadas sob demanda.
+- `data/<classe>.js` — as 6 boards de cada classe, carregadas sob demanda.
 - `icons/` — ícones das habilidades.
 - `tools/fetch-data.js` — baixa boards e ícones de todas as classes.
+- `tools/fetch-official.js` — baixa da API oficial as boards que o GameWith não
+  tem (Ariel). `fetch-data.js` mantém essas boards ao rodar de novo.
 - `tools/test-solver.js` — confere o solver exato contra força bruta.
 
 ## Dados
 
 Nodes, posições e efeitos vêm do planner do GameWith, que usa as páginas
-oficiais de personagem do AION2 (versão global, 06/10/2026). O custo por node é
+oficiais de personagem do AION2 (versão global, 06/10/2026). A Ariel, que o
+GameWith ainda não tem, vem direto da API oficial (06/11/2026); mesmo layout
+nas 8 classes. Os pesos dos stats em JvA e contra Chefe são estimativas
+(comentário em `ROLES`, `app.js`). O custo por node é
 estimado pela raridade (1/2/3/4). Ícones e nomes pertencem à NCSOFT; este é um
 projeto de fã, sem vínculo com a NCSOFT ou o GameWith.
 
@@ -80,5 +85,5 @@ usar um orçamento só para a árvore aberta.
 Ativas: o jogador marca as que importam (peso 10 por +1 nível). Passivas:
 entram marcadas com peso estimado pela amostra. A montagem automática só roda
 depois dessa escolha e pode dividir um total de pontos entre as 4 árvores
-(Azphel usa pontos próprios). A seção "Fontes de pontos" soma nível, missões
+(Ariel e Azphel usam pontos próprios). A seção "Fontes de pontos" soma nível, missões
 regionais, masmorras seladas e lojas (contagens do guia do MetaBot).

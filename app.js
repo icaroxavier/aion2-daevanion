@@ -30,6 +30,11 @@
   // Sem número publicado (estimativa nossa): Velocidade de Combate ~0,7% por 1%
   // (→ 35) e Redução de Recarga ~0,5% por 1% (→ 25). Acerto Crítico, Precisão e
   // Acerto de Alteração de Estado ficam em 1 por falta de conversão conhecida.
+  //
+  // Ariel (JvA): "em JvA" vale contra todo monstro, igual ao stat comum; "contra
+  // Chefe" só nos chefes, e vale 80% disso (estimativa nossa: o grosso do dano
+  // em PvE que importa é no chefe, mas não é tudo). Amplif. contra Chefe dá +1%
+  // (não 1,5%): 17 ÷ 1,5 × 0,8 ≈ 9.
   const ROLES = {
     dps: {
       name: 'DPS',
@@ -37,6 +42,7 @@
         'Attack Bonus': 1, 'PvP Attack': 1, 'Critical Hit': 1, 'PvP Critical Hit': 1, 'PvP Accuracy': 1, 'Status Effect Chance': 1,
         'Damage Boost': 17, 'PvP Damage Boost': 17, 'Multi-hit Chance': 16, 'Critical Damage Boost': 25,
         'Cooldown Reduction': 25, 'Combat Speed': 35,
+        'PvE Attack': 1, 'Boss Attack': 0.8, 'PvE Accuracy': 1, 'PvE Damage Boost': 17, 'Boss Damage Boost': 9,
       },
     },
     // Tank (só Gladiador por ora). Mesma escala, mas a métrica é vida efetiva
@@ -58,6 +64,8 @@
         'PvP Defense': 10, 'PvP Damage Tolerance': 17, 'PvP Critical Hit Resist': 2, 'PvP Evasion': 2, 'Status Effect Resist': 2,
         'Attack Bonus': 0.3, 'PvP Attack': 0.3, 'Critical Hit': 0.3, 'Damage Boost': 5, 'PvP Damage Boost': 5, 'Multi-hit Chance': 5,
         'Critical Damage Boost': 7.5, 'Combat Speed': 10.5, 'Cooldown Reduction': 15,
+        'PvE Defense': 10, 'Boss Defense': 8, 'PvE Damage Tolerance': 17, 'Boss Damage Tolerance': 9, 'PvE Evasion': 2,
+        'PvE Attack': 0.3, 'Boss Attack': 0.25, 'PvE Damage Boost': 5, 'Boss Damage Boost': 2.7,
       },
       // a montagem automática não espera a escolha de ativas (os pesos das
       // habilidades vêm de skill-model.js)
@@ -73,6 +81,8 @@
         'Attack Bonus': 1, 'Critical Hit': 1, 'Critical Damage Boost': 12, 'Combat Speed': 35, 'Cooldown Reduction': 25,
         HP: 3, 'Defense Bonus': 2, 'Damage Tolerance': 8, MP: 1, 'Critical Hit Resist': 0.5,
         'PvP Attack': 1, 'PvP Defense': 2, 'PvP Damage Tolerance': 8, 'Status Effect Resist': 1,
+        // Ataque em JvA/contra Chefe só vale no dano em monstro: fica em 0 para a cura
+        'PvE Defense': 2, 'Boss Defense': 1.6, 'PvE Damage Tolerance': 8, 'Boss Damage Tolerance': 4.3,
       },
       autoSkills: true,
     },
@@ -83,9 +93,19 @@
     'Critical Damage Boost': 'DCR', 'Critical Damage Tolerance': 'TCR', 'Multi-hit Chance': 'MUL', 'Multi-hit Resist': 'RMU',
     'PvP Attack': 'ATQ', 'PvP Defense': 'DEF', 'PvP Critical Hit': 'CRI', 'PvP Critical Hit Resist': 'RCR', 'PvP Accuracy': 'PRE',
     'PvP Evasion': 'EVA', 'PvP Damage Boost': 'DAN', 'PvP Damage Tolerance': 'TOL', 'Status Effect Chance': 'EST', 'Status Effect Resist': 'RES',
+    'PvE Attack': 'ATQ', 'PvE Defense': 'DEF', 'PvE Accuracy': 'PRE', 'PvE Evasion': 'EVA', 'PvE Damage Boost': 'DAN', 'PvE Damage Tolerance': 'TOL',
+    'Boss Attack': 'ATC', 'Boss Defense': 'DFC', 'Boss Damage Boost': 'DNC', 'Boss Damage Tolerance': 'TLC',
   }
-  // Azphel (JvJ) usa outra moeda: fica fora do total compartilhado de pontos
-  const isPvpBoard = (b) => b.name === 'Azphel'
+  // Valor de referência dos stats que aparecem com mais de um valor: o peso do
+  // papel vale para este valor e escala com o do node (Acerto Crítico +10 na
+  // Ariel vale 2× o +5 das outras árvores).
+  const STAT_UNIT = { 'Critical Hit': 5, 'Critical Hit Resist': 5 }
+  // Ariel (JvA) e Azphel (JvJ) usam pontos próprios: ficam fora do total compartilhado
+  const OWN_POINTS = {
+    Ariel: 'Ariel usa pontos próprios (JvA, das masmorras), fora do total das outras quatro árvores.',
+    Azphel: 'Azphel usa pontos próprios (JvJ), fora do total das outras quatro árvores.',
+  }
+  const ownPoints = (b) => !!OWN_POINTS[b.name]
 
   // ---- dados por classe (carregados sob demanda) ---------------------------
   // Tipo de node = mesmo efeito (ex.: "Ataque Adicional +3") ou mesma habilidade.
@@ -279,13 +299,18 @@
   // garantir uma habilidade na build (seção da montagem automática) também conta como escolha
   const anySkillRequired = () =>
     boards.some((b) => cfg(b).reqTypes.some((k) => k.startsWith('skill:'))) || Object.keys(cc().guarantee || {}).some((k) => k.startsWith('skill:'))
+  // boards só de atributos (Ariel) não dependem da escolha de habilidades
+  const hasSkills = (b) => b.types.some((t) => t.skill)
   const skillsSettled = () => !!ROLES[cc().role]?.autoSkills || cc().skillsDone || anyActivePicked() || anySkillRequired()
 
   // ---- pesos, obrigatórios, cálculo -----------------------------------------
   const roleWeight = (t) => {
     if (t.skill) return skillWeight(t.nodes[0].skill)
     const w = ROLES[cc().role]?.weights || {}
-    return t.stats.reduce((s, st) => s + (w[st] || 0), 0)
+    return t.stats.reduce((s, st, i) => {
+      const v = STAT_UNIT[st] && +(/\+([\d.]+)%?$/.exec(t.nodes[0].effects[i] || '') || [])[1]
+      return s + (w[st] || 0) * (v ? v / STAT_UNIT[st] : 1)
+    }, 0)
   }
   const weightOf = (b, key) => {
     const w = cfg(b).weights[key]
@@ -337,18 +362,18 @@
   function recomputeAll() {
     computeGuaranteePicks()
     const auto = skillsSettled()
-    const shared = poolActive() ? boards.filter((b) => !isPvpBoard(b)) : []
+    const shared = poolActive() ? boards.filter((b) => !ownPoints(b)) : []
     if (shared.length) {
       const rs = solveMany(shared.map((b) => ({ board: b, requiredIds: requiredIds(b), opts: solveOpts(b) })), cc().pool)
       shared.forEach((b, i) => (results[b.id] = { ...rs[i], pooled: true }))
     }
     for (const b of boards) {
       if (shared.includes(b)) continue
-      results[b.id] = solve(b, requiredIds(b), { ...solveOpts(b), budget: auto ? cfg(b).budget : 0 })
+      results[b.id] = solve(b, requiredIds(b), { ...solveOpts(b), budget: auto || !hasSkills(b) ? cfg(b).budget : 0 })
     }
   }
   // com o total compartilhado ligado, mexer numa árvore muda as outras
-  const compute = (b) => ((poolActive() && !isPvpBoard(b)) || anyGuarantee() ? recomputeAll() : (results[b.id] = solve(b, requiredIds(b), { ...solveOpts(b), budget: skillsSettled() ? cfg(b).budget : 0 })))
+  const compute = (b) => ((poolActive() && !ownPoints(b)) || anyGuarantee() ? recomputeAll() : (results[b.id] = solve(b, requiredIds(b), { ...solveOpts(b), budget: skillsSettled() || !hasSkills(b) ? cfg(b).budget : 0 })))
 
   // ---- link compartilhável: #s=<base64url do estado compacto> ---------------
   // v2: { v, c: classe, l: critério, p: total compartilhado, d: skillsDone,
@@ -542,7 +567,7 @@
     $('skills-block').classList.toggle('attention', waiting)
     $('skills-from-char').hidden = !cc().char
   }
-  const autoWanted = () => cc().pool > 0 || boards.some((b) => cfg(b).budget > 0)
+  const autoWanted = () => cc().pool > 0 || boards.some((b) => hasSkills(b) && cfg(b).budget > 0)
 
   function abbr(n) {
     if (n.type === 'Start') return ''
@@ -610,7 +635,7 @@
       const fresh = [...r.ids].filter((id) => !ownedSet.has(id) && b.byId.get(id).type !== 'Start')
       $('res-points').textContent = r.points
       $('res-of').textContent = ownedSet.size ? 'pontos a gastar' : `de ${b.totalCost} pontos`
-      if (autoWanted() && !skillsSettled()) {
+      if (autoWanted() && !skillsSettled() && hasSkills(b)) {
         badge.className = 'badge approx'
         badge.textContent = 'Montagem automática esperando: escolha suas habilidades'
       } else if (r.overBudget) {
@@ -641,9 +666,9 @@
         ? [...sum].map(([k, x]) => `<li><span>${k}</span><span>+${fmt(x.v)}${x.pct}</span></li>`).join('')
         : '<li><span class="hint">Nada ainda. Marque um node ou um tipo como obrigatório.</span></li>'
     }
-    const shared = boards.filter((x) => !isPvpBoard(x))
+    const shared = boards.filter((x) => !ownPoints(x))
     const sum = (list) => list.reduce((s, x) => s + (results[x.id]?.ok ? results[x.id].points : 0), 0)
-    $('res-total').textContent = `${sum(shared)} pts` + (boards.length > shared.length ? ` + ${sum(boards.filter(isPvpBoard))} de Azphel` : '')
+    $('res-total').textContent = `${sum(shared)} pts` + boards.filter(ownPoints).map((x) => ` + ${sum([x])} de ${x.name}`).join('')
     b.types.forEach((t, i) => {
       const el = $('got-' + b.id + '-' + i)
       if (el) el.textContent = (r.ok ? t.nodes.filter((n) => r.ids.has(n.id)).length : 0) + '/' + t.nodes.length
@@ -753,7 +778,7 @@
   }
 
   function renderAuto() {
-    const pvp = isPvpBoard(active)
+    const pvp = ownPoints(active)
     $('pool').value = cc().pool || ''
     $('budget').value = cfg(active).budget || ''
     const pooled = cc().pool > 0 && !pvp
@@ -763,10 +788,10 @@
       ? 'Com o total das 4 árvores ligado, a divisão entre elas é automática.'
       : `Completar o que falta desta árvore custa ${left} pontos.`
     $('pool-row').hidden = pvp
-    $('pool-note').textContent = pvp ? 'Azphel usa pontos próprios (JvJ), fora do total das outras quatro árvores.' : ''
+    $('pool-note').textContent = pvp ? OWN_POINTS[active.name] : ''
     // divisão da melhor build entre as 4 árvores
     const split = $('pool-split')
-    const pve = boards.filter((b) => !isPvpBoard(b))
+    const pve = boards.filter((b) => !ownPoints(b))
     const on = poolActive() && pve.every((b) => results[b.id]?.ok)
     split.hidden = !on
     if (on) {
@@ -784,7 +809,7 @@
   // Cada chip liga/desliga o tipo como obrigatório nas 4 árvores de PvE (a
   // habilidade em todas as árvores onde ela aparece; o dourado só na árvore dele).
   function guaranteeGroups() {
-    const pve = boards.filter((b) => !isPvpBoard(b))
+    const pve = boards.filter((b) => !ownPoints(b))
     const skills = new Map()
     const golds = []
     for (const b of pve) {
@@ -851,7 +876,7 @@
   function sourcesTotals() {
     const s = cc().sources
     const earned = LEVEL_POINTS(s.level) + SOURCES.reduce((a, x) => a + int(s[x.key], x.max) * x.each, 0)
-    const spent = boards.filter((b) => !isPvpBoard(b)).reduce((a, b) => a + cfg(b).owned.reduce((x, id) => x + b.byId.get(id).cost, 0), 0)
+    const spent = boards.filter((b) => !ownPoints(b)).reduce((a, b) => a + cfg(b).owned.reduce((x, id) => x + b.byId.get(id).cost, 0), 0)
     return { earned, spent, free: Math.max(0, earned - spent) }
   }
   function renderSources() {
