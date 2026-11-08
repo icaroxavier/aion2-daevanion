@@ -20,111 +20,103 @@
   // Peso padrão por stat (chave em inglês, estável) em cada papel. Stat que não
   // aparece vale 0 — no DPS, tudo que é defensivo.
   //
-  // Escala: 1,0 = um node comum de Ataque Adicional +3. Os % (nodes únicos) são
-  // convertidos por dano real estimado no endgame (KR), segundo
-  // https://gameplay.tips/guides/aion-2-how-stats-work-damage-formula-guide.html:
-  //   Ataque Adicional  ~0,1% de dano a cada 10  → +3    ≈ 0,03%  → 1
-  //   Amplif. de Dano   ~0,35% por 1%            → +1,5% ≈ 0,53%  → 17
-  //   Golpes Múltiplos  ~0,33% por 1%            → +1,5% ≈ 0,50%  → 16
-  //   Dano Crítico      ~0,4–0,6% por 1%         → +1,5% ≈ 0,75%  → 25
-  // Sem número publicado (estimativa nossa): Velocidade de Combate ~0,7% por 1%
-  // (→ 35) e Redução de Recarga ~0,5% por 1% (→ 25). Acerto Crítico, Precisão e
-  // Acerto de Alteração de Estado ficam em 1 por falta de conversão conhecida.
+  // Fontes: guia do kanonxo (cap. 11 "How stats work", com a fórmula de dano do
+  // AionLab, e cap. 12, um Gladiador de 180k CP no Global) e o modelo de
+  // pontuação da aion2tool (aion2tool.com/spec-order). Os números são para o
+  // endgame do Global.
   //
-  // Ariel (JvA): "em JvA" vale contra todo monstro, igual ao stat comum; "contra
-  // Chefe" só nos chefes, e vale 80% disso (estimativa nossa: o grosso do dano
-  // em PvE que importa é no chefe, mas não é tudo). Amplif. contra Chefe dá +1%
-  // (não 1,5%): 17 ÷ 1,5 × 0,8 ≈ 9.
+  // Escala: 1,0 = um node de Ataque Adicional +3. No Global, +131 de Ataque =
+  // +3,61% de dano → +10 de Ataque ≈ 0,28%; Ataque Adicional rende ~0,59× o
+  // Ataque (razão do guia) → +3 ≈ 0,049% de dano. Os outros stats, em % de dano
+  // marginal:
+  //   Amplif. de Dano / em JvA  1% ≈ 0,5% (soma ~100%, já com a resistência do
+  //                             chefe; no KR ~180% → 0,35%)   +1,5% → 0,75% → 16
+  //   Amplif. contra Chefe +1%  mesmo balde, só em chefe                     → 10
+  //   Dano Crítico              teto de 50% de crítico no Global, −25% do chefe;
+  //                             sem passiva de Dano Crítico (~90%): 0,32% por 1% → 10
+  //                             com passiva (~120%): 0,29% por 1%             → 9
+  //   Golpes Múltiplos          aion2tool: f(x)=11,1x+13,9x²+17,8x³+23,9x⁴ (%),
+  //                             base 18% + ~15% de stat → ≈0,28% por 1%       → 8
+  //   Velocidade de Combate     aion2tool: 1:1 no dano; ~30% total → 0,77%    → 24
+  //   Redução de Recarga        aion2tool: 30% do ganho teórico 1/(1−r)       → 11
+  //   Acerto Crítico +5 (+10)   ~6,7% de chance por 100 até o teto de 50%;
+  //                             ~5,7 abaixo do teto, 0 no teto                → 3
+  //   Precisão em JvA +5        anula Bloqueio/Aparar 1:1 até ~1.200 (Ludra)  → 2
+  //   Ataque em JvA / contra Chefe  somam depois do Aumento de Ataque (~15%):
+  //                             0,85 e 0,8 (abaixo do Ataque Adicional)
+  //   Acerto de Alteração de Estado  chefes resistem                         → 0,5
+  //   Amplif. em JvJ (Azphel)   1% ≈ 0,6% (guia)                    +1,5%    → 18
   const ROLES = {
     dps: {
       name: 'DPS',
       weights: {
-        'Attack Bonus': 1, 'PvP Attack': 1, 'Critical Hit': 1, 'PvP Critical Hit': 1, 'PvP Accuracy': 1, 'Status Effect Chance': 1,
-        'Damage Boost': 17, 'PvP Damage Boost': 17, 'Multi-hit Chance': 16, 'Critical Damage Boost': 25,
-        'Cooldown Reduction': 25, 'Combat Speed': 35,
-        'PvE Attack': 1, 'Boss Attack': 0.8, 'PvE Accuracy': 1, 'PvE Damage Boost': 17, 'Boss Damage Boost': 9,
+        'Attack Bonus': 1, 'Critical Hit': 3, 'Status Effect Chance': 0.5,
+        'Damage Boost': 16, 'Multi-hit Chance': 8, 'Critical Damage Boost': 10, 'Cooldown Reduction': 11, 'Combat Speed': 24,
+        'PvE Attack': 0.85, 'Boss Attack': 0.8, 'PvE Accuracy': 2, 'PvE Damage Boost': 16, 'Boss Damage Boost': 10,
+        'PvP Attack': 0.85, 'PvP Critical Hit': 3, 'PvP Accuracy': 2, 'PvP Damage Boost': 18,
       },
     },
-    // Tank (só Gladiador por ora). Mesma escala, mas a métrica é vida efetiva
-    // (EHP = PV ÷ fração de dano que passa): 1,0 ≈ +0,03% de EHP. Não há fórmula
-    // de defesa publicada; estimativas nossas, com as premissas:
-    //   PV +100           PV ~30.000 no endgame → +0,33% EHP              → 11
-    //   Defesa +30        defesa ~3.000 mitigando ~40% → +1% de defesa
-    //                     ≈ +0,4% EHP                                      → 10
-    //   Tolerância a Dano +1,5%  espelho da Amplificação (≈0,5%)          → 17
-    //   Tol. Dano Crítico +1,5%  só vale nos críticos do chefe (~20%)     → 7
-    //   Resist. Golpes Múltiplos +1,5%  menos acertos extras do chefe     → 6
-    //   Resist. Acerto Crítico +5  conversão desconhecida                 → 2
-    // Ofensivos valem ~30% do DPS (ameaça e dano ainda contam); Redução de
-    // Recarga vale mais (volta das defensivas): 15.
+    // Tank (Gladiador, Templário). Mesma escala, mas a métrica é vida efetiva
+    // (EHP = PV ÷ fração de dano que passa): 1,0 ≈ +0,03% de EHP. Pelo guia:
+    //   - chefes não têm Acerto Crítico, Golpes Múltiplos, Dano de Arma nem
+    //     Frente/Costas → Resist. a Acerto Crítico, Tol. a Dano Crítico e
+    //     Resist. a Golpes Múltiplos valem 0 em PvE;
+    //   - Defesa só tira 10% do valor do dano (−3 por golpe com +30)        → 2
+    //   - Tolerância a Dano anula a Amplificação do chefe 1:1 (Amplif. do
+    //     chefe ~100%, estimativa): +1,5% ≈ 0,75% menos dano               → 25
+    //     (contra Chefe +1%: 16)
+    //   - PV +100 com PV ~30.000 → +0,33% EHP                              → 11
+    // Ofensivos valem ~30% do DPS; Redução de Recarga vale mais (defensivas): 15.
     tank: {
       name: 'Tank',
       weights: {
-        HP: 11, 'Defense Bonus': 10, 'Damage Tolerance': 17, 'Critical Damage Tolerance': 7, 'Multi-hit Resist': 6, 'Critical Hit Resist': 2,
-        'PvP Defense': 10, 'PvP Damage Tolerance': 17, 'PvP Critical Hit Resist': 2, 'PvP Evasion': 2, 'Status Effect Resist': 2,
-        'Attack Bonus': 0.3, 'PvP Attack': 0.3, 'Critical Hit': 0.3, 'Damage Boost': 5, 'PvP Damage Boost': 5, 'Multi-hit Chance': 5,
-        'Critical Damage Boost': 7.5, 'Combat Speed': 10.5, 'Cooldown Reduction': 15,
-        'PvE Defense': 10, 'Boss Defense': 8, 'PvE Damage Tolerance': 17, 'Boss Damage Tolerance': 9, 'PvE Evasion': 2,
-        'PvE Attack': 0.3, 'Boss Attack': 0.25, 'PvE Damage Boost': 5, 'Boss Damage Boost': 2.7,
+        HP: 11, 'Defense Bonus': 2, 'Damage Tolerance': 25, 'Status Effect Resist': 2,
+        'PvE Defense': 2, 'Boss Defense': 1.8, 'PvE Damage Tolerance': 25, 'Boss Damage Tolerance': 16, 'PvE Evasion': 1,
+        'Attack Bonus': 0.3, 'Critical Hit': 0.9, 'Damage Boost': 5, 'Multi-hit Chance': 2.4, 'Critical Damage Boost': 3,
+        'Combat Speed': 7, 'Cooldown Reduction': 15,
+        'PvE Attack': 0.25, 'Boss Attack': 0.25, 'PvE Damage Boost': 5, 'Boss Damage Boost': 3,
+        // Azphel (JvJ): jogadores críticam e têm golpes múltiplos, então as resistências valem lá
+        'PvP Defense': 10, 'PvP Damage Tolerance': 17, 'PvP Critical Hit Resist': 2, 'PvP Evasion': 2,
+        'PvP Attack': 0.25, 'PvP Damage Boost': 5,
       },
       // a montagem automática não espera a escolha de ativas (os pesos das
       // habilidades vêm de skill-model.js)
       autoSkills: true,
     },
     // Healer (Clérigo, Encantador). Escala: 1,0 ≈ a cura que +3 de Ataque dá
-    // (as curas escalam com Ataque, "+100% Attack" nos tooltips). Estimativas:
-    // velocidade e recarga valem como no DPS (mais curas por segundo); crítico
-    // cura com crítico (suposição); um pouco de sobrevivência; MP ajuda.
+    // (as curas escalam com Ataque). Velocidade e Recarga como no DPS (mais
+    // curas por segundo); crítico cura mais, mas parte vira sobrecura → 2/3 do
+    // DPS; sobrevivência pelo mesmo raciocínio do Tank, em escala menor.
+    // Ataque em JvA/contra Chefe só vale no dano em monstro: 0 para a cura.
     healer: {
       name: 'Healer',
       weights: {
-        'Attack Bonus': 1, 'Critical Hit': 1, 'Critical Damage Boost': 12, 'Combat Speed': 35, 'Cooldown Reduction': 25,
-        HP: 3, 'Defense Bonus': 2, 'Damage Tolerance': 8, MP: 1, 'Critical Hit Resist': 0.5,
-        'PvP Attack': 1, 'PvP Defense': 2, 'PvP Damage Tolerance': 8, 'Status Effect Resist': 1,
-        // Ataque em JvA/contra Chefe só vale no dano em monstro: fica em 0 para a cura
-        'PvE Defense': 2, 'Boss Defense': 1.6, 'PvE Damage Tolerance': 8, 'Boss Damage Tolerance': 4.3,
+        'Attack Bonus': 1, 'Critical Hit': 2, 'Critical Damage Boost': 6, 'Combat Speed': 24, 'Cooldown Reduction': 11,
+        HP: 3, 'Defense Bonus': 0.5, 'Damage Tolerance': 10, MP: 1,
+        'PvE Defense': 0.5, 'Boss Defense': 0.4, 'PvE Damage Tolerance': 10, 'Boss Damage Tolerance': 6.5,
+        'PvP Attack': 0.85, 'PvP Defense': 2, 'PvP Damage Tolerance': 8, 'Status Effect Resist': 1,
       },
       autoSkills: true,
     },
   }
 
-  // Pesos por classe e papel, quando a classe foge do padrão do papel (acima).
-  //
-  // Fonte: guia do kanonxo (cap. 11 "How stats work", fórmula de dano do
-  // AionLab, e cap. 12 com um Gladiador de 180k CP no Global) e o modelo de
-  // pontuação da aion2tool (aion2tool.com/spec-order). Escala: 1,0 = node de
-  // Ataque Adicional +3. No Global, +131 de Ataque = +3,61% de dano → +10 de
-  // Ataque ≈ 0,28%; Ataque Adicional rende ~0,59× o Ataque (razão do guia) →
-  // +3 ≈ 0,049% de dano. Demais stats em % de dano (marginal, no endgame Global):
-  //   Amplif. de Dano / em JvA  1% ≈ 0,5% (soma ~100%, já com a resistência do
-  //                             chefe; KR ~180% → 0,35%)    +1,5% → 0,75% → 16
-  //   Amplif. contra Chefe +1%  mesmo balde, só em chefe                → 10
-  //   Dano Crítico              teto de 50% de crítico no Global; Gladiador
-  //                             (Murderous Burst) ~120% de Dano Crítico, −25% do
-  //                             chefe: 0,5 × 1% ÷ 1,725 ≈ 0,29% por 1%       → 9
-  //   Golpes Múltiplos          aion2tool: f(x)=11,1x+13,9x²+17,8x³+23,9x⁴ (%),
-  //                             base 18% + ~15% de stat → ≈0,28% por 1%      → 8
-  //   Velocidade de Combate     aion2tool: 1:1 no dano; ~30% total → 0,77%    → 24
-  //   Redução de Recarga        aion2tool: 30% do ganho teórico 1/(1−r)       → 11
-  //   Acerto Crítico +5 (+10)   ~6,7% de chance por 100 até o teto de 50%;
-  //                             vale ~5,7 abaixo do teto e 0 no teto          → 3
-  //   Precisão em JvA +5        anula Bloqueio/Aparar 1:1 até ~1.200 (Ludra)  → 2
-  //   Ataque em JvA / contra Chefe  somam depois do Aumento de Ataque (~15%),
-  //                             abaixo do Ataque Adicional: 0,85 e 0,8
-  //   Acerto de Alteração de Estado: chefes resistem                         → 0,5
-  // Defensivos ficam em 0 no DPS.
+  // Ajustes por classe sobre o padrão do papel. Classes com passiva de Dano
+  // Crítico (guia: Gladiador/Murderous Burst, Encantador/Wind's Promise,
+  // Arqueiro/Hunter's Resolve, Assassino/Assault Stance, Clérigo/Earth's Grace)
+  // tiram menos de cada 1% a mais.
+  const CRIT_PASSIVE = { 'Critical Damage Boost': 9 }
   const CLASS_WEIGHTS = {
-    gladiator: {
-      dps: {
-        'Attack Bonus': 1, 'Critical Hit': 3, 'Status Effect Chance': 0.5,
-        'Damage Boost': 16, 'Multi-hit Chance': 8, 'Critical Damage Boost': 9, 'Cooldown Reduction': 11, 'Combat Speed': 24,
-        'PvE Attack': 0.85, 'Boss Attack': 0.8, 'PvE Accuracy': 2, 'PvE Damage Boost': 16, 'Boss Damage Boost': 10,
-        // Azphel (JvJ): Amplif. em JvJ 1% ≈ 0,6% (guia) → +1,5% ≈ 18
-        'PvP Attack': 0.85, 'PvP Critical Hit': 3, 'PvP Accuracy': 2, 'PvP Damage Boost': 18,
-      },
-    },
+    gladiator: { dps: CRIT_PASSIVE, tank: { 'Critical Damage Boost': 2.7 } },
+    chanter: { dps: CRIT_PASSIVE },
+    ranger: { dps: CRIT_PASSIVE },
+    assassin: { dps: CRIT_PASSIVE },
+    cleric: { dps: CRIT_PASSIVE },
   }
-  const roleWeights = () => CLASS_WEIGHTS[state.cls]?.[cc().role] || ROLES[cc().role]?.weights || {}
+  const WEIGHTS = {}
+  const roleWeights = () => {
+    const k = state.cls + ':' + cc().role
+    return (WEIGHTS[k] = WEIGHTS[k] || { ...(ROLES[cc().role]?.weights || {}), ...(CLASS_WEIGHTS[state.cls]?.[cc().role] || {}) })
+  }
   const ABBR = {
     'Attack Bonus': 'ATQ', 'Critical Hit': 'CRI', 'Critical Hit Resist': 'RCR', 'Defense Bonus': 'DEF', HP: 'PV', MP: 'PM',
     'Combat Speed': 'VEL', 'Cooldown Reduction': 'REC', 'Damage Boost': 'DAN', 'Damage Tolerance': 'TOL',

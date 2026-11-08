@@ -30,57 +30,61 @@
   const GCD = 1 // segundos por conjuração
   const HP_REF = 30000 // PV de referência para converter "% de PV" (premissa)
 
-  // valor de 1 unidade de cada efeito de passiva, por papel (na escala acima)
+  // valor de 1 unidade de cada efeito de passiva, por papel (na escala acima).
+  // Mesma calibração dos pesos de atributo em app.js (guia do kanonxo +
+  // aion2tool, endgame do Global): 1,0 = Ataque Adicional +3 ≈ 0,049% de dano.
   const STAT_UNIT = {
     dps: {
-      // Ataque total de referência ~3.000: +1% ≈ +30 de Ataque
-      'Attack%': 10,
-      Attack: 1 / 3, 'Critical Hit': 1 / 5, 'Damage Boost%': 17 / 1.5, 'PvE Damage Boost%': 17 / 1.5,
-      'Critical Damage Boost%': 25 / 1.5, 'Combat Speed%': 35 / 1.5, 'Cooldown%': 25 / 1.5, 'Double Chance%': 16 / 1.5,
-      'Multi-Hit Chance%': 16 / 1.5,
-      // só de frente / só pelas costas: metade do tempo, grosso modo
-      'Front Attack Damage Boost%': 17 / 3, 'Back Attack Damage Boost%': 17 / 3,
+      // Aumento de Ataque: no Global, +2,9% (Might) = +1,87% de dano → 1% ≈ 0,65%
+      'Attack%': 13,
+      Attack: 1 / 3, 'Critical Hit': 3 / 5, 'Damage Boost%': 16 / 1.5, 'PvE Damage Boost%': 16 / 1.5,
+      'Critical Damage Boost%': 10 / 1.5, 'Combat Speed%': 24 / 1.5, 'Cooldown%': 11 / 1.5,
+      // Chance Dupla: o stat ofensivo de maior valor (guia: 0,6–0,8% por 1%)
+      'Double Chance%': 14,
+      'Multi-Hit Chance%': 8 / 1.5,
+      // Frente/Costas: ~0,6% por 1% com 75% de acerto da posição; só um lado → metade
+      'Front Attack Damage Boost%': 6, 'Back Attack Damage Boost%': 6,
     },
     tank: {
-      HP: 11 / 100, 'Max HP%': (11 / 100) * (HP_REF / 100), 'Defense%': 10, Defense: 10 / 30, 'Damage Tolerance%': 17 / 1.5,
-      'PvE Damage Tolerance%': 17 / 1.5, 'Critical Hit Resist': 2 / 5, 'Block%': 6, 'Evasion%': 4,
-      Block: 0.05, Evasion: 0.05, 'Incoming Heal%': 5 / 1.5, 'Status Effect Resist%': 2, Endurance: 0, 'Endurance%': 3,
-      Attack: 0.3 / 3, 'Damage Boost%': 5 / 1.5, 'PvE Damage Boost%': 5 / 1.5, 'Combat Speed%': 10.5 / 1.5, 'Cooldown%': 15 / 1.5,
+      // chefes não críticam: Resist. a Acerto Crítico vale 0 em PvE (guia)
+      HP: 11 / 100, 'Max HP%': (11 / 100) * (HP_REF / 100), 'Defense%': 2, Defense: 2 / 30, 'Damage Tolerance%': 25 / 1.5,
+      'PvE Damage Tolerance%': 25 / 1.5, 'Critical Hit Resist': 0, 'Block%': 6, 'Evasion%': 4,
+      Block: 0.05, Evasion: 0.05, 'Incoming Heal%': 5 / 1.5, 'Status Effect Resist%': 2, Endurance: 0,
+      // Endurance: chance de levar só metade do dano (sem penetração nos chefes) → 1% ≈ 0,5% menos dano
+      'Endurance%': 17,
+      Attack: 0.3 / 3, 'Damage Boost%': 5 / 1.5, 'PvE Damage Boost%': 5 / 1.5, 'Combat Speed%': 7 / 1.5, 'Cooldown%': 15 / 1.5,
     },
     healer: {
-      Attack: 1 / 3, 'Heal Boost%': 17 / 1.5, 'Healing%': 17 / 1.5, 'Critical Hit': 1 / 5, 'Combat Speed%': 35 / 1.5,
-      'Cooldown%': 25 / 1.5, 'Max HP%': 0.03 * (HP_REF / 100), HP: 0.03, 'Defense%': 2, 'Damage Tolerance%': 8 / 1.5,
+      Attack: 1 / 3, 'Heal Boost%': 17 / 1.5, 'Healing%': 17 / 1.5, 'Critical Hit': 2 / 5, 'Combat Speed%': 24 / 1.5,
+      'Cooldown%': 11 / 1.5, 'Max HP%': 0.03 * (HP_REF / 100), HP: 0.03, 'Defense%': 0.5, 'Damage Tolerance%': 10 / 1.5,
     },
   }
 
-  // Por classe, quando foge do papel: mesma calibração dos pesos por classe de
-  // app.js (guia do kanonxo + aion2tool, Global), aqui por 1 unidade do efeito.
+  // Ajustes por classe sobre o papel (mesmos de CLASS_WEIGHTS em app.js)
+  const CRIT_PASSIVE = { 'Critical Damage Boost%': 9 / 1.5 }
   const CLASS_STAT_UNIT = {
-    gladiator: {
-      dps: {
-        // Aumento de Ataque: no Global, +2,9% (Might) = +1,87% de dano → 1% ≈ 0,65% ÷ 0,049%
-        'Attack%': 13,
-        Attack: 1 / 3, 'Critical Hit': 3 / 5, 'Damage Boost%': 16 / 1.5, 'PvE Damage Boost%': 16 / 1.5,
-        'Critical Damage Boost%': 9 / 1.5, 'Combat Speed%': 24 / 1.5, 'Cooldown%': 11 / 1.5,
-        // Chance Dupla: o stat ofensivo de maior valor (guia: 0,6–0,8% por 1%)
-        'Double Chance%': 14,
-        'Multi-Hit Chance%': 8 / 1.5,
-        // Frente/Costas: ~0,6% por 1% com 75% de acerto da posição; só um lado → metade
-        'Front Attack Damage Boost%': 6, 'Back Attack Damage Boost%': 6,
-      },
-    },
+    gladiator: { dps: CRIT_PASSIVE },
+    chanter: { dps: CRIT_PASSIVE },
+    ranger: { dps: CRIT_PASSIVE },
+    assassin: { dps: CRIT_PASSIVE },
+    cleric: { dps: CRIT_PASSIVE },
   }
 
   // "Increases the caster's PvE Damage Boost by 5.5%, ... and Accuracy by 100"
+  // Bônus "do Espírito" (Espiritualista) só vale no dano do espírito: conta essa parte
+  const SPIRIT_SHARE = 0.4
   function effects(tooltip) {
     const out = {}
     if (!tooltip) return out
-    const re = /(?:caster's |additional |the )?((?:Max |PvE |PvP )?[A-Z][A-Za-z-]*(?: [A-Z][A-Za-z-]*)*) by (?:an additional )?([\d.,]+)(%?)/g
-    let m
-    while ((m = re.exec(tooltip))) {
-      if (/^ of /.test(tooltip.slice(m.index + m[0].length))) continue // "X% of Attack": outra base, fora
-      const key = m[1].replace(/^(?:Increases|Grants|Raises|Boosts) (?:the )?/, '').replace(/^(?:caster's )/, '') + (m[3] ? '%' : '')
-      out[key] = (out[key] || 0) + +m[2].replace(/,/g, '')
+    for (const sentence of tooltip.split(/(?<=\.)\s+/)) {
+      const k = /\bSpirit's\b/.test(sentence) ? SPIRIT_SHARE : 1
+      const re = /(?:caster's |additional |the )?((?:Max |PvE |PvP )?[A-Z][A-Za-z-]*(?: [A-Z][A-Za-z-]*)*) by (?:an additional )?([\d.,]+)(%?)/g
+      let m
+      while ((m = re.exec(sentence))) {
+        if (/^ of /.test(sentence.slice(m.index + m[0].length))) continue // "X% of Attack": outra base, fora
+        const key = m[1].replace(/^(?:Increases|Grants|Raises|Boosts) (?:the )?/, '').replace(/^(?:caster's )/, '') + (m[3] ? '%' : '')
+        out[key] = (out[key] || 0) + +m[2].replace(/,/g, '') * k
+      }
     }
     return out
   }
@@ -139,9 +143,9 @@
         const a = effects(d.tooltip1)
         const b = effects(d.tooltipMax)
         const steps = Math.max(1, (d.maxLevel || 40) - 1)
-        const unit = (CLASS_STAT_UNIT[cls] || {})[role] || STAT_UNIT[role] || {}
+        const unit = { ...(STAT_UNIT[role] || {}), ...((CLASS_STAT_UNIT[cls] || {})[role] || {}) }
         // efeito temporário ("for 20s" ao bloquear, ao acertar...): conta metade do tempo ativo
-        const uptime = /for [d.]+s/.test(d.tooltipMax || '') ? 0.5 : 1
+        const uptime = /for [\d.]+s\b/.test(d.tooltipMax || '') ? 0.5 : 1
         let w = 0
         let known = false
         const anyRole = Object.keys(b).some((k) => Object.values(STAT_UNIT).some((u) => k in u))
@@ -191,10 +195,40 @@
   //   níveis 8/12/16/20 (40% em 20 níveis → +2% por nível, em média)
   //   o bônus de skills entra como um fator (1 + S) no dano, S ≈ 80% no endgame
   // e 1,0 de peso = 0,049% de dano (node de Ataque Adicional +3 no Global).
+  // Nomes coreanos da aion2tool → inglês cruzando o id da skill num personagem
+  // KR e num Global pela API oficial.
   const DPS_SHARE = {
     gladiator: {
       active: { 'Overhead Slam': 50, 'Rending Blow': 30, 'Ruinous Blow': 10 },
       passive: { 'Attack Preparation': 20, 'Impact Hit': 20, 'Identify Weakness': 15, 'Experienced Counterstrike': 15 },
+    },
+    templar: {
+      active: { Judgment: 40, 'Vicious Strike': 30, Pummel: 20 },
+      passive: { Fury: 25, 'Impact Hit': 20, 'Ironclad Defense': 15 },
+    },
+    assassin: {
+      active: { 'Heart Gore': 25, 'Insignia Explosion': 15, Ambush: 15, 'Quick Slice': 15, 'Savage Roar': 15 },
+      passive: { 'Assault Stance': 25, 'Rear Smite': 25, 'Exploit Weakness': 20, 'Impact Hit': 20 },
+    },
+    ranger: {
+      active: { 'Tempest Shot': 35, Snipe: 25, Deadshot: 10, 'Gale Arrow': 6, 'Drill Dart': 6 },
+      passive: { 'Focused Eye': 25, "Hunter's Resolve": 25, "Hunter's Soul": 20 },
+    },
+    elementalist: {
+      active: { Combustion: 44, 'Cold Shock': 26, 'Elemental Fusion': 20 },
+      passive: { 'Spirit Strike': 30, 'Mental Focus': 25, Corrode: 15 },
+    },
+    sorcerer: {
+      active: { 'Bittercold Wind': 18, Blaze: 20, 'Flame Arrow': 20, 'Wish of Concentration': 15, 'Ice Chain': 10 },
+      passive: { 'Robe of Flame': 30, 'Fire Mark': 25, 'Vitality Evaporation': 15, 'Cold Snap': 15 },
+    },
+    cleric: {
+      active: { 'Radiant Recovery': 30, 'Judgment Thunder': 30, 'Healing Light': 10, 'Light of Regeneration': 10, Condemnation: 10 },
+      passive: { "Earth's Grace": 25, 'Healing Enhancement': 20, "Empyrean Lord's Grace": 15 },
+    },
+    chanter: {
+      active: { 'Dark Crush': 35, Onslaught: 25, 'Incandescent Blow': 10, 'Spinning Strike': 8, Recuperation: 10 },
+      passive: { 'Attack Preparation': 25, 'Impact Hit': 20, 'Inspiring Spell': 15 },
     },
   }
   const SHARE_SLOTS = { active: 12, passive: 10 }

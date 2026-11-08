@@ -66,6 +66,17 @@ liga os obrigatórios e gasta o resto nos nodes de maior peso por ponto
 (heurística gulosa por caminho + busca local trocando folhas). Também dá para
 usar um orçamento só para a árvore aberta.
 
+## Pesos dos atributos
+
+Os pesos padrão (`ROLES` e `CLASS_WEIGHTS` em `app.js`) seguem o guia do
+kanonxo (cap. 11, fórmula de dano do AionLab; cap. 12, Gladiador de 180k CP no
+Global) e o modelo de pontuação da aion2tool, calibrados para o endgame do
+Global. Escala: 1 = node de Ataque Adicional +3 (≈ 0,049% de dano). Exemplos no
+DPS: Velocidade de Combate 24, Amplificação de Dano 16, Recarga 11, Dano Crítico
+9–10 (teto de 50% de crítico), Golpes Múltiplos 8. No Tank, Tolerância a Dano
+vale 25, e Resist. a Acerto Crítico, Tol. a Dano Crítico e Resist. a Golpes
+Múltiplos valem 0 em PvE (chefes não usam esses stats).
+
 ## Pesos das habilidades
 
 `skill-model.js` estima o peso de +1 nível de cada habilidade, por classe e papel:
@@ -76,6 +87,9 @@ usar um orçamento só para a árvore aberta.
   páginas de skill do MetaBot).
 - Passivas: quanto cada efeito sobe por nível (tooltip no nível 1 e no máximo),
   convertido pelo valor do atributo no papel.
+- No DPS, onde há dados de medidor (aion2tool), vale a participação de cada
+  skill no dano: +1 nível = +1,35% do dano dela (+2% nas ativas, pelos bônus dos
+  níveis 8/12/16/20). As ativas com participação conhecida já entram marcadas.
 - O resto cai na amostra de uso (`data/skill-stats.js`, `tools/fetch-skill-stats.js`).
 
 `node tools/dev-server.js` sobe a página com a função `/api/char` localmente.
