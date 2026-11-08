@@ -24,6 +24,11 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   const EXACT_LIMIT = 12
   const MIN_WEIGHT = 1e-6
+  // Desempate (opts.tieOf, 0 a 10): entra no valor vezes TIE_STEP, e a montagem
+  // automática compara primeiro o peso real e só depois o desempate. Valores
+  // abaixo de TIE_ONLY são só desempate, não peso.
+  const TIE_STEP = 1e-6
+  const TIE_ONLY = 1e-3
   const REST_CHUNK = 10 // pontos por bloco de atributos comuns na ordem sugerida
 
   /** Grafo da board: índice por node + lista de vizinhos em cruz. */
@@ -255,101 +260,146 @@
    * @returns     um Set de índices por board, na mesma ordem
    */
   function expandMany(ctxs, budget) {
-    const ws = ctxs.map((c) => {
-      const total = c.value.reduce((x, y) => x + y, 0)
-      const eps = 0.5 / (total + 1)
-      return c.cost.map((x, i) => Math.max(MIN_WEIGHT, x - eps * c.value[i]))
-    })
     const spentOf = (trees) => trees.reduce((a, t, k) => a + [...t].reduce((x, v) => x + ctxs[k].cost[v], 0), 0)
-    const valueOf = (trees) => trees.reduce((a, t, k) => a + [...t].reduce((x, v) => x + ctxs[k].value[v], 0), 0)
-
-    /** Compra caminhos, do melhor ganho^alpha/custo para baixo, até não caber mais nada. */
-    function fill(trees, alpha) {
-      let spent = spentOf(trees)
-      const cached = ctxs.map(() => null) // melhor compra de cada board (refeita quando a board muda ou não cabe mais)
-      const bestPick = (k) => {
-        const { g, cost, value } = ctxs[k]
-        const tree = trees[k]
-        const n = g.nodes.length
-        const dist = new Float64Array(n).fill(Infinity)
-        const prev = new Int32Array(n).fill(-1)
-        tree.forEach((v) => (dist[v] = 0))
-        relax(n, g.adj, ws[k], dist, (u, v) => (prev[u] = v))
-        const out = { node: -1, score: 0, cost: 0, prev }
-        for (let u = 0; u < n; u++) {
-          if (tree.has(u) || !isFinite(dist[u])) continue
-          let gain = 0
-          let c = 0
-          for (let v = u; v >= 0 && !tree.has(v); v = prev[v]) {
-            gain += value[v]
-            c += cost[v]
-          }
-          if (gain <= 0 || spent + c > budget) continue
-          const score = Math.pow(gain, alpha) / Math.max(c, 0.5)
-          if (score > out.score) {
-            out.score = score
-            out.node = u
-            out.cost = c
-          }
-        }
-        return out
-      }
-      for (;;) {
-        let k = -1
-        for (let j = 0; j < ctxs.length; j++) {
-          if (!cached[j] || (cached[j].node >= 0 && spent + cached[j].cost > budget)) cached[j] = bestPick(j)
-          if (cached[j].node >= 0 && (k < 0 || cached[j].score > cached[k].score)) k = j
-        }
-        if (k < 0) return
-        const p = cached[k]
-        for (let v = p.node; v >= 0 && !trees[k].has(v); v = p.prev[v]) trees[k].add(v)
-        spent += p.cost
-        cached[k] = null
-      }
-    }
-
-    /** Folhas removíveis: fora da parte obrigatória, com no máximo 1 vizinho na árvore. */
-    function leaves(trees) {
-      const out = []
-      trees.forEach((tree, k) => {
-        const { g, cost, value, picked } = ctxs[k]
-        tree.forEach((v) => {
-          if (picked.has(v) || cost[v] === 0) return
-          let deg = 0
-          for (const u of g.adj[v]) if (tree.has(u)) deg++
-          if (deg <= 1) out.push({ k, v, ratio: value[v] / cost[v] })
-        })
+    const sumOf = (trees, arr) => trees.reduce((a, t, k) => a + [...t].reduce((x, v) => x + arr[k][v], 0), 0)
+    const realOf = (trees) => sumOf(trees, ctxs.map((c) => c.real))
+    const tieOf = (trees) => sumOf(trees, ctxs.map((c) => c.tie))
+    // valores com e sem desempate (value = real + tie)
+    const WITH_TIE = ctxs.map((c) => c.value)
+    const REAL = ctxs.map((c) => c.real)
+    const wsFor = (vals) =>
+      ctxs.map((c, k) => {
+        const total = vals[k].reduce((x, y) => x + y, 0)
+        const eps = 0.5 / (total + 1)
+        return c.cost.map((x, i) => Math.max(MIN_WEIGHT, x - eps * vals[k][i]))
       })
-      return out.sort((x, y) => x.ratio - y.ratio)
-    }
-    /** Tira a folha e, em cascata, as pontas que ficaram sem valor. */
-    function cut(trees, k, v) {
-      const { g, value, picked } = ctxs[k]
-      const tree = trees[k]
-      const stack = [v]
-      while (stack.length) {
-        const x = stack.pop()
-        if (!tree.has(x) || picked.has(x)) continue
-        let deg = 0
-        let nb = -1
-        for (const u of g.adj[x]) if (tree.has(u)) (deg++, (nb = u))
-        if (deg > 1) continue
-        if (x !== v && value[x] > 0) continue
-        tree.delete(x)
-        if (nb >= 0) stack.push(nb)
+
+    /**
+     * Uma rodada completa (compra + busca local + limpeza) usando `vals` como
+     * valor dos nodes.
+     */
+    function run(alpha, vals, start) {
+      const ws = wsFor(vals)
+      const valueOf = (trees) => sumOf(trees, vals)
+
+      /** Compra caminhos, do melhor ganho^alpha/custo para baixo, até não caber mais nada. */
+      function fill(trees) {
+        let spent = spentOf(trees)
+        const cached = ctxs.map(() => null) // melhor compra de cada board (refeita quando a board muda ou não cabe mais)
+        const bestPick = (k) => {
+          const { g, cost } = ctxs[k]
+          const value = vals[k]
+          const tree = trees[k]
+          const n = g.nodes.length
+          const dist = new Float64Array(n).fill(Infinity)
+          const prev = new Int32Array(n).fill(-1)
+          tree.forEach((v) => (dist[v] = 0))
+          relax(n, g.adj, ws[k], dist, (u, v) => (prev[u] = v))
+          const out = { node: -1, score: 0, cost: 0, prev }
+          for (let u = 0; u < n; u++) {
+            if (tree.has(u) || !isFinite(dist[u])) continue
+            let gain = 0
+            let c = 0
+            for (let v = u; v >= 0 && !tree.has(v); v = prev[v]) {
+              gain += value[v]
+              c += cost[v]
+            }
+            if (gain <= 0 || spent + c > budget) continue
+            const score = Math.pow(gain, alpha) / Math.max(c, 0.5)
+            if (score > out.score) {
+              out.score = score
+              out.node = u
+              out.cost = c
+            }
+          }
+          return out
+        }
+        for (;;) {
+          let k = -1
+          for (let j = 0; j < ctxs.length; j++) {
+            if (!cached[j] || (cached[j].node >= 0 && spent + cached[j].cost > budget)) cached[j] = bestPick(j)
+            if (cached[j].node >= 0 && (k < 0 || cached[j].score > cached[k].score)) k = j
+          }
+          if (k < 0) return
+          const p = cached[k]
+          for (let v = p.node; v >= 0 && !trees[k].has(v); v = p.prev[v]) trees[k].add(v)
+          spent += p.cost
+          cached[k] = null
+        }
       }
+
+      /** Folhas removíveis: fora da parte obrigatória, com no máximo 1 vizinho na árvore. */
+      function leaves(trees) {
+        const out = []
+        trees.forEach((tree, k) => {
+          const { g, cost, picked } = ctxs[k]
+          const value = vals[k]
+          tree.forEach((v) => {
+            // nodes só de desempate não ocupam as vagas de troca
+            if (picked.has(v) || cost[v] === 0 || (value[v] > 0 && value[v] < TIE_ONLY)) return
+            let deg = 0
+            for (const u of g.adj[v]) if (tree.has(u)) deg++
+            if (deg <= 1) out.push({ k, v, ratio: value[v] / cost[v] })
+          })
+        })
+        return out.sort((x, y) => x.ratio - y.ratio)
+      }
+      /** Tira a folha e, em cascata, as pontas que ficaram sem valor. */
+      function cut(trees, k, v) {
+        const { g, picked } = ctxs[k]
+        const value = vals[k]
+        const tree = trees[k]
+        const stack = [v]
+        while (stack.length) {
+          const x = stack.pop()
+          if (!tree.has(x) || picked.has(x)) continue
+          let deg = 0
+          let nb = -1
+          for (const u of g.adj[x]) if (tree.has(u)) (deg++, (nb = u))
+          if (deg > 1) continue
+          if (x !== v && value[x] > 0) continue
+          tree.delete(x)
+          if (nb >= 0) stack.push(nb)
+        }
+      }
+
+      const trees = start.map((t) => new Set(t))
+      fill(trees)
+      // busca local: troca a folha de pior peso/ponto por outra compra, se melhorar
+      let cur = valueOf(trees)
+      let best = trees
+      for (let iter = 0; iter < 60; iter++) {
+        let improved = false
+        for (const leaf of leaves(best).slice(0, 8)) {
+          const trial = best.map((t) => new Set(t))
+          cut(trial, leaf.k, leaf.v)
+          fill(trial)
+          const val = valueOf(trial)
+          if (val > cur + 1e-9) {
+            best = trial
+            cur = val
+            improved = true
+            break
+          }
+        }
+        if (!improved) break
+      }
+      // pontos liberados pelos nodes que sobraram voltam para a compra
+      for (let i = 0; i < 5 && dropRedundant(best, vals); i++) fill(best)
+      return best
     }
 
     /**
-     * Tira nodes sem peso que ficaram sobrando: com as compras, dois caminhos
+     * Tira nodes sem valor que ficaram sobrando: com as compras, dois caminhos
      * podem fechar um ciclo e um node de passagem deixa de ser necessário (a
      * busca local só corta pontas, então ele nunca sairia). Obrigatórios ficam.
      * @returns se tirou algum
      */
-    function dropRedundant(trees) {
+    function dropRedundant(trees, vals) {
       let any = false
       trees.forEach((tree, k) => {
-        const { g, cost, value, terms } = ctxs[k]
+        const { g, cost, terms } = ctxs[k]
+        const value = vals[k]
         const connected = () => {
           const seen = new Set([g.start])
           const stack = [g.start]
@@ -369,38 +419,31 @@
       return any
     }
 
-    let best = ctxs.map((c) => c.picked)
-    let bestVal = -1
+    // Duas rodadas por alpha: (1) com desempate desde o começo, que escolhe as
+    // passagens preferidas; (2) só com o peso real e, no fim, a sobra de pontos
+    // comprada com desempate. Vence o maior peso real; empate, o maior
+    // desempate; empate, o mais barato. Assim o desempate nunca custa peso: a
+    // rodada (2) garante o mesmo peso de quem não usa desempate.
+    const hasTie = ctxs.some((c) => c.tie.some((x) => x > 0))
+    const start = ctxs.map((c) => c.picked)
+    let best = start
+    let bestReal = -1
+    let bestTie = -1
     let bestCost = Infinity
+    const consider = (trees) => {
+      const r = realOf(trees)
+      const t = tieOf(trees)
+      const s = spentOf(trees)
+      const better = r > bestReal + 1e-7 || (Math.abs(r - bestReal) <= 1e-7 && (t > bestTie + 1e-12 || (Math.abs(t - bestTie) <= 1e-12 && s < bestCost)))
+      if (better) [best, bestReal, bestTie, bestCost] = [trees, r, t, s]
+    }
     for (const alpha of [0.75, 1, 1.5, 2]) {
-      let trees = ctxs.map((c) => new Set(c.picked))
-      fill(trees, alpha)
-      // busca local: troca a folha de pior peso/ponto por outra compra, se melhorar
-      let cur = valueOf(trees)
-      for (let iter = 0; iter < 60; iter++) {
-        let improved = false
-        for (const leaf of leaves(trees).slice(0, 8)) {
-          const trial = trees.map((t) => new Set(t))
-          cut(trial, leaf.k, leaf.v)
-          fill(trial, alpha)
-          const val = valueOf(trial)
-          if (val > cur + 1e-9) {
-            trees = trial
-            cur = val
-            improved = true
-            break
-          }
-        }
-        if (!improved) break
-      }
-      // pontos liberados pelos nodes que sobraram voltam para a compra
-      for (let i = 0; i < 5 && dropRedundant(trees); i++) fill(trees, alpha)
-      cur = valueOf(trees)
-      const spent = spentOf(trees)
-      if (cur > bestVal + 1e-9 || (Math.abs(cur - bestVal) <= 1e-9 && spent < bestCost)) {
-        best = trees
-        bestVal = cur
-        bestCost = spent
+      const plain = run(alpha, REAL, start)
+      consider(plain)
+      if (hasTie) {
+        consider(run(alpha, WITH_TIE, start))
+        // a sobra de pontos vai para o desempate
+        consider(run(alpha, WITH_TIE, plain))
       }
     }
     return best
@@ -418,6 +461,7 @@
       board.id ?? '', [...new Set(requiredIds)].sort().join(','), [...(o.blockedIds || [])].sort().join(','),
       [...(o.freeIds || [])].sort().join(','), o.lambda || 0, o.forceHeuristic ? 1 : 0,
       board.nodes.map((n) => valueOf(n) || 0).join(','),
+      typeof o.tieOf === 'function' ? board.nodes.map((n) => o.tieOf(n) || 0).join(',') : '',
     ].join('|')
     if (BASE_CACHE.has(key)) {
       const hit = BASE_CACHE.get(key)
@@ -437,7 +481,11 @@
     const g = buildGraph(board, o.blockedIds)
     if (g.start < 0) return { ok: false, reason: 'no-start' }
 
-    const value = g.nodes.map((n) => Math.max(0, valueOf(n) || 0))
+    const tieOf = typeof o.tieOf === 'function' ? o.tieOf : () => 0
+    // value = peso real + desempate (TIE_STEP × 0..10); real e tie ficam separados para comparar em dois níveis
+    const real = g.nodes.map((n) => Math.max(0, valueOf(n) || 0))
+    const tie = g.nodes.map((n) => TIE_STEP * Math.min(10, Math.max(0, +tieOf(n) || 0)))
+    const value = real.map((x, i) => x + tie[i])
     let t = o.lambda || 0
     if (!(t > 0)) {
       // modo estrito: o bônus total de ataque nunca chega a 1 ponto
@@ -447,7 +495,7 @@
     // nodes já abertos pelo personagem não custam pontos nem contam peso
     const free = o.freeIds || new Set()
     const cost = g.nodes.map((n, i) => (i === g.start || free.has(n.id) ? 0 : n.cost))
-    for (let i = 0; i < value.length; i++) if (cost[i] === 0) value[i] = 0
+    for (let i = 0; i < value.length; i++) if (cost[i] === 0) value[i] = real[i] = tie[i] = 0
     const w = g.nodes.map((n, i) => (i === g.start ? 0 : cost[i] === 0 ? MIN_WEIGHT : Math.max(MIN_WEIGHT, cost[i] - t * value[i])))
 
     const terms = []
@@ -463,11 +511,11 @@
     else picked = exact ? solveExact(g, w, terms) : solveHeuristic(g, w, terms, 24)
     if (!picked) return { ok: false, reason: 'unreachable' }
     const requiredPoints = [...picked].reduce((a, v) => a + cost[v], 0)
-    return { ok: true, g, cost, value, picked, exact, requiredPoints, terms: new Set(terms) }
+    return { ok: true, g, cost, value, real, tie, picked, exact, requiredPoints, terms: new Set(terms) }
   }
 
   function finish(ctx, picked, extra) {
-    const { g, cost, value } = ctx
+    const { g, cost, real } = ctx
     // ordem de desbloqueio: busca em largura a partir do início, dentro da árvore
     const order = []
     const seen = new Set([g.start])
@@ -486,7 +534,7 @@
     let attack = 0
     picked.forEach((v) => {
       points += cost[v]
-      attack += value[v]
+      attack += real[v]
     })
     return { ok: true, exact: ctx.exact, auto: false, overBudget: false, requiredPoints: ctx.requiredPoints, ids: new Set(order), order, points, attack, ...extra }
   }

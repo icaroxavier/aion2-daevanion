@@ -168,6 +168,7 @@ td .sw { display: inline-block; width: 10px; height: 10px; border: 2px solid var
 td .sw.skill { border-radius: 50%; }
 td small { color: var(--muted); margin-left: 6px; white-space: nowrap; }
 tr.grp td { color: var(--muted); font-size: 12px; letter-spacing: .09em; text-transform: uppercase; padding-top: 12px; }
+input.num.tie { width: 52px; }
 input.num { width: 70px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; text-align: right; }
 textarea { width: 100%; min-height: 180px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .btn { background: var(--cell); border: 1px solid var(--line); border-radius: 4px; padding: 5px 12px; cursor: pointer; }
@@ -370,11 +371,11 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
     <!-- no desktop fica embaixo da board (coluna da esquerda); no celular, depois do resultado -->
     <div class="block" id="tipos">
       <h2 id="types-title">Tipos de node</h2>
-      <p class="hint">Os pesos começam no padrão do papel escolhido, na escala em que 1 = um node comum de Ataque +3; os nodes únicos (%) valem de 16 a 35 pelo dano estimado. Os pesos das habilidades vêm da seção “Minhas habilidades”. O peso diz o quanto você quer aquele tipo no caminho (0 = indiferente). “Obrigatório” força pegar todos os nodes daquele tipo nesta árvore. Para obrigar só um node específico, clique nele na board.</p>
+      <p class="hint">Os pesos começam no padrão do papel escolhido, na escala em que 1 = um node comum de Ataque +3; os nodes únicos (%) valem de 16 a 35 pelo dano estimado. Os pesos das habilidades vêm da seção “Minhas habilidades”. O peso diz o quanto você quer aquele tipo no caminho (0 = indiferente). “Obrigatório” força pegar todos os nodes daquele tipo nesta árvore. Para obrigar só um node específico, clique nele na board. “Desempate” (0 a 10) só decide entre opções de mesmo peso — por exemplo, qual node de peso 0 usar de passagem — e nunca troca peso por desempate; com pontos sobrando, a montagem automática gasta nos tipos com desempate.</p>
       <button type="button" class="btn" id="reset-weights" style="align-self:flex-start">Resetar pesos (voltar ao padrão do papel)</button>
       <div class="tablewrap scrolly">
         <table>
-          <thead><tr><th class="c">Obrigatório</th><th>Tipo</th><th class="r">Peso</th><th class="r">Pegos</th></tr></thead>
+          <thead><tr><th class="c">Obrigatório</th><th>Tipo</th><th class="r">Peso</th><th class="r" title="Entre opções de mesmo peso, vence o maior">Desempate</th><th class="r">Pegos</th></tr></thead>
           <tbody id="types"></tbody>
         </table>
       </div>

@@ -77,6 +77,11 @@ DPS: Velocidade de Combate 24, Amplificação de Dano 16, Recarga 11, Dano Crít
 vale 25, e Resist. a Acerto Crítico, Tol. a Dano Crítico e Resist. a Golpes
 Múltiplos valem 0 em PvE (chefes não usam esses stats).
 
+"Desempate" (0 a 10 por tipo) só decide entre opções de mesmo peso, como qual
+node de peso 0 usar de passagem, e recebe a sobra de pontos. O solver compara
+primeiro o peso real e só depois o desempate (`opts.tieOf` em `solver.js`),
+então o desempate nunca custa peso.
+
 ## Pesos das habilidades
 
 `skill-model.js` estima o peso de +1 nível de cada habilidade, por classe e papel:

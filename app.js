@@ -201,8 +201,16 @@
       return s
     },
   }
-  const emptyBoard = () => ({ weights: {}, reqTypes: [], reqNodes: [], blocked: [], owned: [], budget: 0 })
+  // ties: desempate por tipo (0 a 10), só decide entre opções de mesmo peso
+  const emptyBoard = () => ({ weights: {}, ties: {}, reqTypes: [], reqNodes: [], blocked: [], owned: [], budget: 0 })
   const emptySources = () => ({ level: 0, quests: 0, dungeons: 0, festival: 0, nightmare: 0, other: 0 })
+  // Desempate: inteiro de 0 a 10 por tipo. Entra no valor do node vezes TIE_STEP,
+  // tão pequeno que a soma de todos os desempates de uma build (< 600 nodes ×
+  // 10 × 1e-6 = 0,006) fica abaixo de qualquer diferença de peso digitável
+  // (0,1): só decide entre opções empatadas e nunca troca peso por desempate.
+  // Com pontos sobrando, a montagem automática gasta nos tipos com desempate.
+  const TIE_STEP = 1e-6
+  const tieValue = (n) => Math.min(10, Math.max(0, Math.round(+n || 0)))
   const ids = (a) => (Array.isArray(a) ? a.filter((x) => Number.isInteger(x)) : [])
 
   /** Leva dados de qualquer versão conhecida até a atual. null = irreconhecível. */
@@ -242,6 +250,7 @@
           continue
         }
         b.weights = b.weights && typeof b.weights === 'object' ? b.weights : {}
+        b.ties = b.ties && typeof b.ties === 'object' ? b.ties : {}
         b.reqTypes = Array.isArray(b.reqTypes) ? b.reqTypes.filter((k) => typeof k === 'string') : []
         b.reqNodes = ids(b.reqNodes)
         b.blocked = ids(b.blocked)
@@ -269,6 +278,12 @@
         if (key && isFinite(+w) && +w >= 0) weights[key] = +w
       }
       cfgB.weights = weights
+      const ties = {}
+      for (const [k, n] of Object.entries(cfgB.ties || {})) {
+        const key = keyOf(k)
+        if (key && tieValue(n) > 0) ties[key] = tieValue(n)
+      }
+      cfgB.ties = ties
       cfgB.reqTypes = [...new Set(cfgB.reqTypes.map(keyOf).filter(Boolean))]
       const real = (id) => b.byId.has(id) && b.byId.get(id).type !== 'Start'
       cfgB.reqNodes = cfgB.reqNodes.filter(real)
@@ -344,6 +359,8 @@
       return s + (w[st] || 0) * (v ? v / STAT_UNIT[st] : 1)
     }, 0)
   }
+  /** Valor do node para o solver: peso + desempate (ver TIE_STEP). */
+  const nodeValue = (b, n) => (n.typeKey ? weightOf(b, n.typeKey) + TIE_STEP * (cfg(b).ties[n.typeKey] || 0) : 0)
   const weightOf = (b, key) => {
     const w = cfg(b).weights[key]
     return w === undefined ? roleWeight(b.typeByKey.get(key)) : w
@@ -366,6 +383,7 @@
     blockedIds: new Set(cfg(b).blocked),
     freeIds: new Set(cfg(b).owned),
     valueOf: (n) => (n.typeKey ? weightOf(b, n.typeKey) : 0),
+    tieOf: (n) => (n.typeKey ? cfg(b).ties[n.typeKey] || 0 : 0),
   })
   const poolActive = () => cc().pool > 0 && skillsSettled()
   /**
@@ -424,6 +442,9 @@
       const w = {}
       for (const t of bd.types) if (c.weights[t.key] !== undefined && c.weights[t.key] !== roleWeight(t)) w[repId(t)] = c.weights[t.key]
       if (Object.keys(w).length) o.w = w
+      const e = {}
+      for (const t of bd.types) if (c.ties[t.key] > 0) e[repId(t)] = c.ties[t.key]
+      if (Object.keys(e).length) o.e = e
       const t = c.reqTypes.map((k) => bd.typeByKey.get(k)).filter(Boolean).map(repId)
       if (t.length) o.t = t
       if (c.reqNodes.length) o.n = c.reqNodes
@@ -481,6 +502,7 @@
       const dst = (c.boards[bd.id] = emptyBoard())
       const typeOf = (ref) => (o.v >= 2 ? bd.typeByKey.get(bd.byId.get(+ref)?.typeKey) : bd.types[ref])
       for (const [ref, w] of Object.entries(src.w || {})) if (typeOf(ref) && isFinite(+w) && +w >= 0) dst.weights[typeOf(ref).key] = +w
+      for (const [ref, n] of Object.entries(src.e || {})) if (typeOf(ref) && tieValue(n) > 0) dst.ties[typeOf(ref).key] = tieValue(n)
       dst.reqTypes = (src.t || []).map(typeOf).filter(Boolean).map((t) => t.key)
       dst.reqNodes = ids(src.n)
       dst.blocked = ids(src.x)
@@ -627,7 +649,7 @@
     if (!r || !r.ok) return []
     if (!ORDER.has(r)) {
       const req = requiredIds(b)
-      ORDER.set(r, orderBlocks(b, r.ids, { ownedIds: new Set(cfg(b).owned), valueOf: (n) => (n.typeKey ? weightOf(b, n.typeKey) : 0), isSpecial: isSpecial(b, req) }))
+      ORDER.set(r, orderBlocks(b, r.ids, { ownedIds: new Set(cfg(b).owned), valueOf: (n) => nodeValue(b, n), isSpecial: isSpecial(b, req) }))
     }
     return ORDER.get(r)
   }
@@ -811,9 +833,9 @@
       : `Plano: ${plan.points} pontos em ${plan.count} nodes`
   }
 
-  // os botões de resetar só ficam ativos quando algum peso foi alterado
+  // os botões de resetar só ficam ativos quando algum peso ou desempate foi alterado
   function syncReset() {
-    const custom = boards.some((b) => Object.keys(cfg(b).weights).length > 0)
+    const custom = boards.some((b) => Object.keys(cfg(b).weights).length > 0 || Object.keys(cfg(b).ties).length > 0)
     for (const id of ['reset-weights', 'reset-weights-top']) $(id).disabled = !custom
   }
   function renderTypes() {
@@ -827,7 +849,7 @@
       if (t.skill !== lastSkill) {
         lastSkill = t.skill
         const g = document.createElement('tr'); g.className = 'grp'
-        g.innerHTML = `<td colspan="4">${t.skill ? 'Habilidades' : 'Atributos'}</td>`
+        g.innerHTML = `<td colspan="5">${t.skill ? 'Habilidades' : 'Atributos'}</td>`
         body.appendChild(g)
       }
       const tr = document.createElement('tr')
@@ -836,9 +858,11 @@
         `<td class="c"><input type="checkbox" id="rq-${b.id}-${i}" aria-label="Obrigatório: ${t.label}"></td>` +
         `<td><label for="rq-${b.id}-${i}">${t.nodes[0].icon ? `<img class="ic" src="${t.nodes[0].icon}" alt="" style="border-color:${color}">` : `<span class="sw${t.skill ? ' skill' : ''}" style="border-color:${color}"></span>`}${t.label}<small>${t.nodes.length}× · ${t.cost} pt</small></label></td>` +
         `<td class="r"><input class="num" type="number" step="0.1" min="0" id="w-${b.id}-${i}" aria-label="Peso: ${t.label}"></td>` +
+        `<td class="r"><input class="num tie" type="number" step="1" min="0" max="10" placeholder="0" id="e-${b.id}-${i}" aria-label="Desempate: ${t.label}" title="Desempate (0 a 10): entre opções de mesmo peso, vence o maior"></td>` +
         `<td class="r" id="got-${b.id}-${i}"></td>`
       body.appendChild(tr)
-      const cb = $(`rq-${b.id}-${i}`), w = $(`w-${b.id}-${i}`)
+      const cb = $(`rq-${b.id}-${i}`), w = $(`w-${b.id}-${i}`), e = $(`e-${b.id}-${i}`)
+      e.value = cfg(b).ties[t.key] || ''
       cb.checked = cfg(b).reqTypes.includes(t.key)
       w.value = weightOf(b, t.key)
       cb.onchange = () => {
@@ -853,6 +877,14 @@
         syncReset()
         clearTimeout(w._t)
         w._t = setTimeout(() => changed(b), 250)
+      }
+      e.oninput = () => {
+        const n = tieValue(e.value)
+        if (n > 0) cfg(b).ties[t.key] = n
+        else delete cfg(b).ties[t.key]
+        syncReset()
+        clearTimeout(e._t)
+        e._t = setTimeout(() => changed(b), 250)
       }
     })
   }
@@ -1090,7 +1122,7 @@
   }
   // volta os pesos de todas as árvores da classe ao padrão do papel
   const resetWeights = () => {
-    boards.forEach((b) => (cfg(b).weights = {}))
+    boards.forEach((b) => Object.assign(cfg(b), { weights: {}, ties: {} }))
     refresh()
   }
   $('reset-weights').onclick = resetWeights
