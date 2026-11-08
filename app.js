@@ -811,8 +811,14 @@
       : `Plano: ${plan.points} pontos em ${plan.count} nodes`
   }
 
+  // os botões de resetar só ficam ativos quando algum peso foi alterado
+  function syncReset() {
+    const custom = boards.some((b) => Object.keys(cfg(b).weights).length > 0)
+    for (const id of ['reset-weights', 'reset-weights-top']) $(id).disabled = !custom
+  }
   function renderTypes() {
     const b = active
+    syncReset()
     $('types-title').textContent = `Tipos de node · ${b.name}`
     const body = $('types')
     body.innerHTML = ''
@@ -844,6 +850,7 @@
       w.oninput = () => {
         const v = parseFloat(w.value)
         cfg(b).weights[t.key] = isFinite(v) && v >= 0 ? v : 0
+        syncReset()
         clearTimeout(w._t)
         w._t = setTimeout(() => changed(b), 250)
       }
@@ -1081,8 +1088,19 @@
     Object.assign(cfg(active), { reqTypes: [], reqNodes: [], blocked: [] })
     refresh()
   }
-  $('reset-weights').onclick = () => {
+  // volta os pesos de todas as árvores da classe ao padrão do papel
+  const resetWeights = () => {
     boards.forEach((b) => (cfg(b).weights = {}))
+    refresh()
+  }
+  $('reset-weights').onclick = resetWeights
+  $('reset-weights-top').onclick = resetWeights
+  // apaga tudo da classe aberta (mantém só o papel escolhido)
+  $('reset-all').onclick = () => {
+    const name = classInfo()?.name || ''
+    if (!confirm(`Apagar toda a configuração de ${name}? Pesos, obrigatórios, bloqueios, nodes já abertos, montagem automática, habilidades e fontes de pontos voltam ao início.`)) return
+    const role = cc().role
+    state.classes[state.cls] = normalize({ classes: { [state.cls]: { role } } }).classes[state.cls]
     refresh()
   }
   $('order-toggle').onclick = () => { showOrder = !showOrder; renderGrid(); renderOrder() }

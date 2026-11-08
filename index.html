@@ -106,6 +106,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .seg button { background: none; border: 0; padding: 5px 10px; cursor: pointer; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--cell); color: var(--fg); }
 .link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.link:disabled, .btn:disabled { opacity: .45; cursor: default; text-decoration: none; }
 
 .grid { display: grid; gap: 3px; container-type: inline-size; max-width: 760px; }
 .cell { position: relative; aspect-ratio: 1; min-width: 0; padding: 0; border: 1.5px solid var(--common); border-radius: 3px; background: var(--cell); color: var(--muted); cursor: pointer; font-size: clamp(6px, 2cqw, 11px); font-weight: 500; line-height: 1; display: grid; place-items: center; overflow: hidden; }
@@ -278,6 +279,8 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
           <button type="button" id="mode-block" aria-pressed="false">Clique bloqueia</button>
         </span>
         <button type="button" class="link" id="clear">Limpar esta árvore</button>
+        <button type="button" class="link" id="reset-weights-top" title="Volta todos os pesos desta classe ao padrão do papel">Resetar pesos</button>
+        <button type="button" class="link" id="reset-all" title="Apaga toda a configuração desta classe">Resetar tudo</button>
         <button type="button" class="link" id="goto-types">Pesos e obrigatórios por tipo</button>
         <button type="button" class="link" id="order-toggle" aria-pressed="true">Esconder a ordem</button>
       </div>
@@ -368,7 +371,7 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
     <div class="block" id="tipos">
       <h2 id="types-title">Tipos de node</h2>
       <p class="hint">Os pesos começam no padrão do papel escolhido, na escala em que 1 = um node comum de Ataque +3; os nodes únicos (%) valem de 16 a 35 pelo dano estimado. Os pesos das habilidades vêm da seção “Minhas habilidades”. O peso diz o quanto você quer aquele tipo no caminho (0 = indiferente). “Obrigatório” força pegar todos os nodes daquele tipo nesta árvore. Para obrigar só um node específico, clique nele na board.</p>
-      <button type="button" class="link" id="reset-weights" style="align-self:flex-start">Voltar aos pesos padrão do papel</button>
+      <button type="button" class="btn" id="reset-weights" style="align-self:flex-start">Resetar pesos (voltar ao padrão do papel)</button>
       <div class="tablewrap scrolly">
         <table>
           <thead><tr><th class="c">Obrigatório</th><th>Tipo</th><th class="r">Peso</th><th class="r">Pegos</th></tr></thead>
