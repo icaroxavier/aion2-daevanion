@@ -256,7 +256,7 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
 
   <div class="block" id="skills-block">
     <h2>Minhas habilidades</h2>
-    <p class="hint">Marque as ativas que você usa; as passivas já entram marcadas. Cada uma mostra o peso estimado de +1 nível para o seu papel (dano ou cura por segundo nas ativas, efeito por nível nas passivas), na mesma escala dos atributos. Desmarcada vale 0; dá para ajustar na tabela de pesos.</p>
+    <p class="hint">Marque as ativas que você usa; as passivas já entram marcadas, e no DPS também as ativas que mais causam dano na classe (quando há dados). Cada uma mostra o peso estimado de +1 nível para o seu papel (dano ou cura por segundo nas ativas, efeito por nível nas passivas), na mesma escala dos atributos. Desmarcada vale 0; dá para ajustar na tabela de pesos.</p>
     <p class="hint err" id="skills-note" hidden>A montagem automática está esperando: marque ao menos uma ativa, ou diga que não quer priorizar nenhuma.</p>
     <h3>Ativas</h3>
     <div class="skills" id="skills-active"></div>
@@ -265,7 +265,7 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
     <div class="row">
       <button type="button" class="btn" id="skills-from-char" hidden>Marcar as ativas da barra do meu personagem</button>
       <button type="button" class="link" id="skills-none">Não quero priorizar nenhuma ativa</button>
-      <button type="button" class="link" id="skills-reset">Voltar ao padrão (ativas desmarcadas, passivas marcadas)</button>
+      <button type="button" class="link" id="skills-reset">Voltar ao padrão (passivas e ativas-chave marcadas)</button>
     </div>
   </div>
   <div class="tabs" id="tabs" role="tablist"></div>

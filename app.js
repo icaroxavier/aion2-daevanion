@@ -87,6 +87,44 @@
       autoSkills: true,
     },
   }
+
+  // Pesos por classe e papel, quando a classe foge do padrão do papel (acima).
+  //
+  // Fonte: guia do kanonxo (cap. 11 "How stats work", fórmula de dano do
+  // AionLab, e cap. 12 com um Gladiador de 180k CP no Global) e o modelo de
+  // pontuação da aion2tool (aion2tool.com/spec-order). Escala: 1,0 = node de
+  // Ataque Adicional +3. No Global, +131 de Ataque = +3,61% de dano → +10 de
+  // Ataque ≈ 0,28%; Ataque Adicional rende ~0,59× o Ataque (razão do guia) →
+  // +3 ≈ 0,049% de dano. Demais stats em % de dano (marginal, no endgame Global):
+  //   Amplif. de Dano / em JvA  1% ≈ 0,5% (soma ~100%, já com a resistência do
+  //                             chefe; KR ~180% → 0,35%)    +1,5% → 0,75% → 16
+  //   Amplif. contra Chefe +1%  mesmo balde, só em chefe                → 10
+  //   Dano Crítico              teto de 50% de crítico no Global; Gladiador
+  //                             (Murderous Burst) ~120% de Dano Crítico, −25% do
+  //                             chefe: 0,5 × 1% ÷ 1,725 ≈ 0,29% por 1%       → 9
+  //   Golpes Múltiplos          aion2tool: f(x)=11,1x+13,9x²+17,8x³+23,9x⁴ (%),
+  //                             base 18% + ~15% de stat → ≈0,28% por 1%      → 8
+  //   Velocidade de Combate     aion2tool: 1:1 no dano; ~30% total → 0,77%    → 24
+  //   Redução de Recarga        aion2tool: 30% do ganho teórico 1/(1−r)       → 11
+  //   Acerto Crítico +5 (+10)   ~6,7% de chance por 100 até o teto de 50%;
+  //                             vale ~5,7 abaixo do teto e 0 no teto          → 3
+  //   Precisão em JvA +5        anula Bloqueio/Aparar 1:1 até ~1.200 (Ludra)  → 2
+  //   Ataque em JvA / contra Chefe  somam depois do Aumento de Ataque (~15%),
+  //                             abaixo do Ataque Adicional: 0,85 e 0,8
+  //   Acerto de Alteração de Estado: chefes resistem                         → 0,5
+  // Defensivos ficam em 0 no DPS.
+  const CLASS_WEIGHTS = {
+    gladiator: {
+      dps: {
+        'Attack Bonus': 1, 'Critical Hit': 3, 'Status Effect Chance': 0.5,
+        'Damage Boost': 16, 'Multi-hit Chance': 8, 'Critical Damage Boost': 9, 'Cooldown Reduction': 11, 'Combat Speed': 24,
+        'PvE Attack': 0.85, 'Boss Attack': 0.8, 'PvE Accuracy': 2, 'PvE Damage Boost': 16, 'Boss Damage Boost': 10,
+        // Azphel (JvJ): Amplif. em JvJ 1% ≈ 0,6% (guia) → +1,5% ≈ 18
+        'PvP Attack': 0.85, 'PvP Critical Hit': 3, 'PvP Accuracy': 2, 'PvP Damage Boost': 18,
+      },
+    },
+  }
+  const roleWeights = () => CLASS_WEIGHTS[state.cls]?.[cc().role] || ROLES[cc().role]?.weights || {}
   const ABBR = {
     'Attack Bonus': 'ATQ', 'Critical Hit': 'CRI', 'Critical Hit Resist': 'RCR', 'Defense Bonus': 'DEF', HP: 'PV', MP: 'PM',
     'Combat Speed': 'VEL', 'Cooldown Reduction': 'REC', 'Damage Boost': 'DAN', 'Damage Tolerance': 'TOL',
@@ -272,7 +310,7 @@
   const MODEL = {}
   const model = () => {
     const k = state.cls + ':' + cc().role
-    if (!MODEL[k]) MODEL[k] = window.DaevanionSkillModel.weights((window.DAEVANION_SKILL_DETAILS || {})[state.cls], stats(), cc().role)
+    if (!MODEL[k]) MODEL[k] = window.DaevanionSkillModel.weights((window.DAEVANION_SKILL_DETAILS || {})[state.cls], stats(), cc().role, state.cls)
     return MODEL[k]
   }
   const modelWeight = (name) => (model()[name] || { weight: 0 }).weight
@@ -280,8 +318,9 @@
   const stats = () => (window.DAEVANION_SKILL_STATS || {})[state.cls] || { skills: {} }
   const skillStat = (name) => stats().skills[name]
   const isPassive = (name) => (skillStat(name) || {}).cat === 'Passive'
-  // padrão em todo papel: ativas desmarcadas, passivas marcadas
-  const defaultPicked = (name) => isPassive(name)
+  // padrão: passivas marcadas; ativas desmarcadas, menos as ativas-chave no DPS
+  // ativas-chave do DPS (participação no dano conhecida) também entram marcadas
+  const defaultPicked = (name) => isPassive(name) || (cc().role === 'dps' && window.DaevanionSkillModel.keyActives(state.cls).includes(name))
   const skillPicked = (name) => {
     const v = cc().skills[name]
     return v === undefined ? defaultPicked(name) : !!v
@@ -307,7 +346,7 @@
   // ---- pesos, obrigatórios, cálculo -----------------------------------------
   const roleWeight = (t) => {
     if (t.skill) return skillWeight(t.nodes[0].skill)
-    const w = ROLES[cc().role]?.weights || {}
+    const w = roleWeights()
     return t.stats.reduce((s, st, i) => {
       const v = STAT_UNIT[st] && +(/\+([\d.]+)%?$/.exec(t.nodes[0].effects[i] || '') || [])[1]
       return s + (w[st] || 0) * (v ? v / STAT_UNIT[st] : 1)
@@ -1067,7 +1106,7 @@
   $('pool-free').onclick = () => { cc().pool = sourcesTotals().free; refresh() }
   $('auto-off').onclick = () => { cc().pool = 0; boards.forEach((b) => (cfg(b).budget = 0)); refresh() }
   $('skills-reset').onclick = () => { cc().skills = {}; refresh() }
-  $('skills-none').onclick = () => { cc().skillsDone = true; refresh() }
+  $('skills-none').onclick = () => { for (const s of classSkills()) if (!isPassive(s.name)) cc().skills[s.name] = false; cc().skillsDone = true; refresh() }
   $('skills-from-char').onclick = () => {
     for (const s of cc().char?.skills || []) if (s.cat !== 'Passive') cc().skills[s.name] = !!s.equip
     for (const s of classSkills()) if (!isPassive(s.name) && cc().skills[s.name] === undefined) cc().skills[s.name] = false

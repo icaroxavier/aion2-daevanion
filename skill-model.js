@@ -53,6 +53,24 @@
     },
   }
 
+  // Por classe, quando foge do papel: mesma calibração dos pesos por classe de
+  // app.js (guia do kanonxo + aion2tool, Global), aqui por 1 unidade do efeito.
+  const CLASS_STAT_UNIT = {
+    gladiator: {
+      dps: {
+        // Aumento de Ataque: no Global, +2,9% (Might) = +1,87% de dano → 1% ≈ 0,65% ÷ 0,049%
+        'Attack%': 13,
+        Attack: 1 / 3, 'Critical Hit': 3 / 5, 'Damage Boost%': 16 / 1.5, 'PvE Damage Boost%': 16 / 1.5,
+        'Critical Damage Boost%': 9 / 1.5, 'Combat Speed%': 24 / 1.5, 'Cooldown%': 11 / 1.5,
+        // Chance Dupla: o stat ofensivo de maior valor (guia: 0,6–0,8% por 1%)
+        'Double Chance%': 14,
+        'Multi-Hit Chance%': 8 / 1.5,
+        // Frente/Costas: ~0,6% por 1% com 75% de acerto da posição; só um lado → metade
+        'Front Attack Damage Boost%': 6, 'Back Attack Damage Boost%': 6,
+      },
+    },
+  }
+
   // "Increases the caster's PvE Damage Boost by 5.5%, ... and Accuracy by 100"
   function effects(tooltip) {
     const out = {}
@@ -73,9 +91,10 @@
    * @param details  DAEVANION_SKILL_DETAILS[classe]
    * @param sample   DAEVANION_SKILL_STATS[classe] ({ skills: { nome: { cat, equipped, learned, avg } } })
    * @param role     'dps' | 'tank' | 'healer'
+   * @param cls      classe (ex.: "gladiator"), para a calibração por classe
    * @returns        { [nome]: { weight, how } }
    */
-  function weights(details, sample, role) {
+  function weights(details, sample, role, cls) {
     const skills = (sample && sample.skills) || {}
     const lvlOf = (name) => Math.max(1, Math.min(39, Math.round((skills[name] || {}).avg || 10)))
     const isHeal = (d) => /Heal/i.test(d.effect || '') || /^Restores/.test(d.tooltip1 || '')
@@ -120,7 +139,7 @@
         const a = effects(d.tooltip1)
         const b = effects(d.tooltipMax)
         const steps = Math.max(1, (d.maxLevel || 40) - 1)
-        const unit = STAT_UNIT[role] || {}
+        const unit = (CLASS_STAT_UNIT[cls] || {})[role] || STAT_UNIT[role] || {}
         // efeito temporário ("for 20s" ao bloquear, ao acertar...): conta metade do tempo ativo
         const uptime = /for [d.]+s/.test(d.tooltipMax || '') ? 0.5 : 1
         let w = 0
@@ -143,11 +162,52 @@
         out[name] = { weight: /Buff|Shield|Protect/i.test(e) ? 10 : /Debuff/i.test(e) ? 4 : 3, how: 'tipo' }
       } else out[name] = { weight: round1(sampleWeight(name) * (role === 'healer' ? 0.3 : 1)), how: 'amostra' }
     }
+    // DPS com participação no dano conhecida: substitui as estimativas acima
+    const share = role === 'dps' && DPS_SHARE[cls]
+    if (share) {
+      for (const name of Object.keys(out)) {
+        const cat = (details && details[name] && details[name].type) || (skills[name] || {}).cat
+        const kind = cat === 'Passive' ? 'passive' : cat === 'Active' ? 'active' : null
+        if (!kind) continue
+        const table = share[kind]
+        const listed = Object.values(table)
+        const rest = (100 - listed.reduce((a, b) => a + b, 0)) / Math.max(1, SHARE_SLOTS[kind] - listed.length)
+        const pct = (table[name] != null ? table[name] : rest) / 100
+        const perLevel = kind === 'active' ? LEVEL_PCT + ACTIVE_BONUS_PCT : LEVEL_PCT
+        const w = cap((perLevel * pct) / SKILL_FACTOR / UNIT_PCT)
+        // passiva defensiva continua 0; passiva que sobe stat fica com o maior dos dois
+        if (out[name].how === 'efeito de outro papel') continue
+        if (out[name].how === 'efeito' && out[name].weight > w) continue
+        out[name] = { weight: w, how: 'participação no dano' }
+      }
+    }
     return out
   }
+
+  // Participação de cada habilidade no dano (logs de medidor, aion2tool:
+  // ACTIVE/PASSIVE_SKILL_DPS_WEIGHTS). As que não aparecem dividem o resto entre
+  // as 12 ativas / 10 passivas usadas. Modelo da aion2tool para nível de skill:
+  //   +1 nível = +1,35% do dano da skill; ativas ganham ainda +5/+10/+15/+10% nos
+  //   níveis 8/12/16/20 (40% em 20 níveis → +2% por nível, em média)
+  //   o bônus de skills entra como um fator (1 + S) no dano, S ≈ 80% no endgame
+  // e 1,0 de peso = 0,049% de dano (node de Ataque Adicional +3 no Global).
+  const DPS_SHARE = {
+    gladiator: {
+      active: { 'Overhead Slam': 50, 'Rending Blow': 30, 'Ruinous Blow': 10 },
+      passive: { 'Attack Preparation': 20, 'Impact Hit': 20, 'Identify Weakness': 15, 'Experienced Counterstrike': 15 },
+    },
+  }
+  const SHARE_SLOTS = { active: 12, passive: 10 }
+  const LEVEL_PCT = 1.35
+  const ACTIVE_BONUS_PCT = 2
+  const SKILL_FACTOR = 1.8
+  const UNIT_PCT = 0.049
   const round1 = (x) => Math.round(x * 10) / 10
   // nenhuma habilidade vale mais que o melhor node dourado (35)
   const cap = (x) => round1(Math.min(35, x))
 
-  return { weights, effects }
+  /** Ativas-chave da classe no DPS (as que têm participação no dano conhecida). */
+  const keyActives = (cls) => Object.keys((DPS_SHARE[cls] || {}).active || {})
+
+  return { weights, effects, keyActives }
 })
