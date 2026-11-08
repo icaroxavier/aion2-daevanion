@@ -108,7 +108,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; }
 
 .grid { display: grid; gap: 3px; container-type: inline-size; max-width: 760px; }
-.cell { aspect-ratio: 1; min-width: 0; padding: 0; border: 1.5px solid var(--common); border-radius: 3px; background: var(--cell); color: var(--muted); cursor: pointer; font-size: clamp(6px, 2cqw, 11px); font-weight: 500; line-height: 1; display: grid; place-items: center; overflow: hidden; }
+.cell { position: relative; aspect-ratio: 1; min-width: 0; padding: 0; border: 1.5px solid var(--common); border-radius: 3px; background: var(--cell); color: var(--muted); cursor: pointer; font-size: clamp(6px, 2cqw, 11px); font-weight: 500; line-height: 1; display: grid; place-items: center; overflow: hidden; }
 .cell.skill { border-radius: 50%; }
 .cell.g-Rare { border-color: var(--rare); } .cell.g-Legend { border-color: var(--legend); } .cell.g-Unique { border-color: var(--unique); }
 .cell.weighted { color: var(--fg); font-weight: 600; }
@@ -129,6 +129,12 @@ td img.ic { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var
 .gap { aspect-ratio: 1; }
 .info { min-height: 2.9em; color: var(--muted); }
 .info b { color: var(--fg); font-weight: 600; }
+.cell .ord { position: absolute; top: 0; left: 0; min-width: 1.5em; padding: 1px 2px; border-radius: 0 0 3px 0; background: var(--bg); color: var(--fg); font-size: clamp(7px, 1.7cqw, 10px); font-weight: 700; line-height: 1.1; text-align: center; pointer-events: none; }
+.cell.start .ord { display: none; }
+.ordn { display: inline-block; min-width: 1.6em; padding: 0 3px; margin-right: 6px; border-radius: 3px; background: var(--bg); border: 1px solid var(--line); color: var(--fg); font-size: 11px; font-weight: 700; text-align: center; }
+.order li > span:first-child { min-width: 0; }
+.order small { color: var(--muted); margin-left: 4px; }
+.order li > span:last-child { white-space: nowrap; color: var(--muted); }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 12px; }
 .legend i { display: inline-block; width: 11px; height: 11px; border: 1.5px solid var(--common); border-radius: 2px; vertical-align: -1px; margin-right: 5px; background: var(--cell); }
 
@@ -273,6 +279,7 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
         </span>
         <button type="button" class="link" id="clear">Limpar esta árvore</button>
         <button type="button" class="link" id="goto-types">Pesos e obrigatórios por tipo</button>
+        <button type="button" class="link" id="order-toggle" aria-pressed="true">Esconder a ordem</button>
       </div>
       <div class="grid" id="grid"></div>
       <div class="info" id="info">Passe o mouse ou toque num node para ver o que ele dá.</div>
@@ -284,6 +291,12 @@ input.url { flex: 1 1 260px; min-width: 0; background: var(--bg); border: 1px so
         <span><i style="border-color:var(--legend)"></i>lendário (3)</span>
         <span><i style="border-color:var(--unique)"></i>único (4)</span>
         <span><i style="border-radius:50%"></i>habilidade</span>
+        <span><b class="ordn">1</b>bloco da ordem</span>
+      </div>
+      <div class="block" id="order-block" hidden>
+        <h2>Ordem sugerida</h2>
+        <p class="hint">Abra em blocos: cada bloco liga o que você já tem ao próximo node especial (único, lendário, habilidade ou obrigatório), começando pelo que rende mais peso por ponto. O número de cada node na board é o bloco dele.</p>
+        <ol class="gains order" id="order"></ol>
       </div>
     </div>
 

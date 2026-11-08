@@ -1,5 +1,5 @@
 ;(function () {
-  const { solve, solveMany, pickNearest } = window.DaevanionSolver
+  const { solve, solveMany, pickNearest, orderBlocks } = window.DaevanionSolver
   const $ = (id) => document.getElementById(id)
   const fmt = (x) => (Math.round(x * 100) / 100).toLocaleString('pt-BR')
   const round1 = (x) => Math.round(x * 10) / 10
@@ -255,6 +255,7 @@
   let boards = []
   let active = null
   let mode = 'req'
+  let showOrder = true
   let results = {}
   const cc = () => {
     if (!state.classes[state.cls]) state.classes[state.cls] = normalize({ classes: { [state.cls]: {} } }).classes[state.cls]
@@ -580,12 +581,52 @@
     const byType = cfg(b).reqTypes.includes(n.typeKey)
     const flags = [cfg(b).blocked.includes(n.id) ? 'bloqueado' : '', cfg(b).owned.includes(n.id) ? 'já aberto no personagem' : '', req ? (byType ? 'obrigatório pelo tipo' : 'obrigatório') : '',
       results[b.id]?.ok && results[b.id].ids.has(n.id) ? 'no caminho' : ''].filter(Boolean).join(', ')
+    const step = blockOf(b).get(n.id)
     return `<b>${n.effects.join(' · ')}</b> — ${n.cost} ${n.cost > 1 ? 'pontos' : 'ponto'}, peso ${fmt(weightOf(b, n.typeKey))}` +
-      ` · linha ${n.row - b.r0 + 1}, coluna ${n.col - b.c0 + 1}${flags ? ' · ' + flags : ''}`
+      ` · linha ${n.row - b.r0 + 1}, coluna ${n.col - b.c0 + 1}${flags ? ' · ' + flags : ''}${step ? ` · bloco ${step} da ordem` : ''}`
+  }
+
+  // ---- ordem sugerida, em blocos (um bloco = trecho até o próximo node especial)
+  const ORDER = new WeakMap()
+  const isSpecial = (b, req) => (n) =>
+    req.has(n.id) || ((n.grade === 'Unique' || n.grade === 'Legend' || n.type === 'SkillLevel') && weightOf(b, n.typeKey) > 0)
+  /** Blocos do caminho atual da board (calculados uma vez por resultado). */
+  function orderOf(b) {
+    const r = results[b.id]
+    if (!r || !r.ok) return []
+    if (!ORDER.has(r)) {
+      const req = requiredIds(b)
+      ORDER.set(r, orderBlocks(b, r.ids, { ownedIds: new Set(cfg(b).owned), valueOf: (n) => (n.typeKey ? weightOf(b, n.typeKey) : 0), isSpecial: isSpecial(b, req) }))
+    }
+    return ORDER.get(r)
+  }
+  /** id do node → número do bloco (1, 2, …) */
+  const blockOf = (b) => new Map(orderOf(b).flatMap((k, i) => k.ids.map((id) => [id, i + 1])))
+
+  function renderOrder() {
+    const b = active
+    const blocks = orderOf(b)
+    $('order-toggle').setAttribute('aria-pressed', showOrder)
+    $('order-toggle').textContent = showOrder ? 'Esconder a ordem' : 'Mostrar a ordem'
+    $('order-block').hidden = !showOrder || !blocks.length
+    let acc = 0
+    $('order').innerHTML = blocks
+      .map((k, i) => {
+        acc += k.cost
+        const t = k.target && b.byId.get(k.target)
+        // bloco sem alvo especial: os dois atributos que mais aparecem nele
+        const count = new Map()
+        if (!t) for (const id of k.ids) { const e = b.byId.get(id).effects.join(' · '); count.set(e, (count.get(e) || 0) + 1) }
+        const what = t ? t.effects.join(' · ') : [...count].sort((x, y) => y[1] - x[1]).slice(0, 2).map(([e, c]) => `${e} ×${c}`).join(', ') + (count.size > 2 ? '…' : '')
+        const esc = what.replace(/[<>&]/g, '')
+        return `<li><span><b class="ordn">${i + 1}</b> ${esc} <small>${k.ids.length} node${k.ids.length > 1 ? 's' : ''} · peso ${fmt(k.value)}</small></span><span>${k.cost} pts · total ${acc}</span></li>`
+      })
+      .join('')
   }
 
   function renderGrid() {
     const b = active, r = results[b.id], req = requiredIds(b), blocked = new Set(cfg(b).blocked), owned = new Set(cfg(b).owned)
+    const steps = showOrder ? blockOf(b) : new Map()
     const focused = document.activeElement?.dataset?.node
     const g = $('grid')
     g.innerHTML = ''
@@ -601,13 +642,21 @@
         c.className = 'cell g-' + n.grade + (n.type === 'SkillLevel' ? ' skill' : '') + (n.type === 'Start' ? ' start' : '') +
           (n.typeKey && weightOf(b, n.typeKey) > 0 ? ' weighted' : '') +
           (blocked.has(n.id) ? ' blocked' : owned.has(n.id) ? ' owned' : req.has(n.id) ? ' req' : r?.ok && r.ids.has(n.id) && n.type !== 'Start' ? ' path' : '')
+        const badge = () => {
+          if (!steps.has(n.id)) return
+          const s = document.createElement('span')
+          s.className = 'ord'
+          s.textContent = steps.get(n.id)
+          c.appendChild(s)
+        }
         if (n.icon) {
           const img = document.createElement('img')
           img.src = n.icon
           img.alt = n.effects.join(' · ')
-          img.onerror = () => { c.textContent = abbr(n) }
+          img.onerror = () => { c.textContent = abbr(n); badge() }
           c.appendChild(img)
         } else c.textContent = abbr(n)
+        badge()
         c.title = n.type === 'Start' ? n.name : `${n.effects.join(' · ')} · ${n.cost} pt`
         c.setAttribute('aria-pressed', req.has(n.id))
         const show = () => ($('info').innerHTML = describe(b, n))
@@ -949,7 +998,7 @@
     const caret = focusId && ae.type === 'text' ? ae.selectionStart : null
     renderChooser()
     if (!ready()) return
-    renderTabs(); renderSkills(); renderGrid(); renderTypes(); renderResult(); renderEffects(); renderLambda(); renderAuto(); renderSources(); renderChar()
+    renderTabs(); renderSkills(); renderGrid(); renderOrder(); renderTypes(); renderResult(); renderEffects(); renderLambda(); renderAuto(); renderSources(); renderChar()
     if (focusId && $(focusId) && document.activeElement !== $(focusId)) {
       $(focusId).focus()
       if (caret != null) try { $(focusId).setSelectionRange(caret, caret) } catch (e) {}
@@ -1005,6 +1054,7 @@
     boards.forEach((b) => (cfg(b).weights = {}))
     refresh()
   }
+  $('order-toggle').onclick = () => { showOrder = !showOrder; renderGrid(); renderOrder() }
   $('goto-types').onclick = () => $('tipos').scrollIntoView({ behavior: 'smooth', block: 'start' })
   const debounced = (el, fn) => { clearTimeout(el._t); el._t = setTimeout(fn, 250) }
   $('lambda').oninput = () => {

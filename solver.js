@@ -24,6 +24,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   const EXACT_LIMIT = 12
   const MIN_WEIGHT = 1e-6
+  const REST_CHUNK = 10 // pontos por bloco de atributos comuns na ordem sugerida
 
   /** Grafo da board: índice por node + lista de vizinhos em cruz. */
   function buildGraph(board, blockedIds) {
@@ -537,5 +538,77 @@
     return chosen
   }
 
-  return { solve, solveMany, pickNearest, buildGraph, EXACT_LIMIT }
+  /**
+   * Ordem sugerida para abrir um caminho já calculado, em BLOCOS: cada bloco é
+   * o trecho que liga o que já está aberto ao próximo node especial (único,
+   * lendário, habilidade ou obrigatório). Entre os especiais que faltam, vai
+   * primeiro o de maior "peso do trecho ÷ pontos do trecho"; empate, o mais
+   * barato. Os nodes que sobram (atributos comuns da montagem automática) vão
+   * num último bloco.
+   *
+   * @param board   board com `nodes`
+   * @param ids     ids do caminho (results[b].ids), com o início
+   * @param o       { ownedIds: Set, valueOf(n), isSpecial(n) }
+   * @returns       [{ ids: [id], target: id | null, cost, value }]
+   */
+  function orderBlocks(board, ids, o) {
+    const owned = o.ownedIds || new Set()
+    const g = buildGraph({ nodes: board.nodes.filter((n) => ids.has(n.id) || n.type === 'Start') })
+    const n = g.nodes.length
+    const open = new Uint8Array(n)
+    g.nodes.forEach((x, i) => (open[i] = x.type === 'Start' || owned.has(x.id) ? 1 : 0))
+    const value = g.nodes.map((x) => Math.max(0, +o.valueOf(x) || 0))
+    const total = value.reduce((a, b) => a + b, 0)
+    const eps = 0.5 / (total + 1)
+    let left = g.nodes.map((x, i) => i).filter((i) => !open[i] && o.isSpecial(g.nodes[i]))
+    const blocks = []
+    while (left.length) {
+      // caminho mais barato de qualquer node aberto até cada especial (desempata pelo peso)
+      const w = g.nodes.map((x, i) => (open[i] ? 0 : Math.max(MIN_WEIGHT, x.cost - eps * value[i])))
+      const dist = new Float64Array(n).fill(Infinity)
+      const prev = new Int32Array(n).fill(-1)
+      for (let i = 0; i < n; i++) if (open[i]) dist[i] = 0
+      relax(n, g.adj, w, dist, (u, v) => (prev[u] = v))
+      let best = null
+      for (const t of left) {
+        if (!isFinite(dist[t])) continue
+        const path = []
+        for (let v = t; v >= 0 && !open[v]; v = prev[v]) path.push(v)
+        const cost = path.reduce((s, v) => s + g.nodes[v].cost, 0)
+        const val = path.reduce((s, v) => s + value[v], 0)
+        const score = val / Math.max(1, cost)
+        if (!best || score > best.score + 1e-9 || (Math.abs(score - best.score) <= 1e-9 && cost < best.cost)) best = { t, path, cost, val, score }
+      }
+      if (!best) break
+      best.path.forEach((v) => (open[v] = 1))
+      blocks.push({ ids: best.path.reverse().map((v) => g.nodes[v].id), target: g.nodes[best.t].id, cost: best.cost, value: best.val })
+      left = left.filter((i) => !open[i])
+    }
+    // o que sobra vira um bloco por grupo de nodes vizinhos entre si (cada grupo
+    // encosta no que já está aberto), do maior peso por ponto para o menor
+    const seen = new Uint8Array(n)
+    const groups = []
+    for (let s = 0; s < n; s++) {
+      if (open[s] || seen[s] || !g.adj[s].some((u) => open[u])) continue
+      const list = [s]
+      seen[s] = 1
+      for (let k = 0; k < list.length; k++) for (const u of g.adj[list[k]]) if (!open[u] && !seen[u]) (seen[u] = 1), list.push(u)
+      const cost = list.reduce((a, v) => a + g.nodes[v].cost, 0)
+      const val = list.reduce((a, v) => a + value[v], 0)
+      groups.push({ ids: list.map((v) => g.nodes[v].id), target: null, cost, value: val })
+    }
+    groups.sort((a, b) => b.value / b.cost - a.value / a.cost || a.cost - b.cost)
+    // junta grupos pequenos seguidos em blocos de ~REST_CHUNK pontos
+    for (const gr of groups) {
+      const last = blocks[blocks.length - 1]
+      if (last && last.target === null && last.cost < REST_CHUNK) {
+        last.ids.push(...gr.ids)
+        last.cost += gr.cost
+        last.value += gr.value
+      } else blocks.push(gr)
+    }
+    return blocks
+  }
+
+  return { solve, solveMany, pickNearest, orderBlocks, buildGraph, EXACT_LIMIT }
 })
