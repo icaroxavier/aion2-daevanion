@@ -340,6 +340,35 @@
       }
     }
 
+    /**
+     * Tira nodes sem peso que ficaram sobrando: com as compras, dois caminhos
+     * podem fechar um ciclo e um node de passagem deixa de ser necessário (a
+     * busca local só corta pontas, então ele nunca sairia). Obrigatórios ficam.
+     * @returns se tirou algum
+     */
+    function dropRedundant(trees) {
+      let any = false
+      trees.forEach((tree, k) => {
+        const { g, cost, value, terms } = ctxs[k]
+        const connected = () => {
+          const seen = new Set([g.start])
+          const stack = [g.start]
+          while (stack.length) for (const u of g.adj[stack.pop()]) if (tree.has(u) && !seen.has(u)) (seen.add(u), stack.push(u))
+          return seen.size === tree.size
+        }
+        for (let changed = true; changed; ) {
+          changed = false
+          for (const v of [...tree]) {
+            if (v === g.start || cost[v] === 0 || value[v] > 0 || terms.has(v)) continue
+            tree.delete(v)
+            if (connected()) changed = any = true
+            else tree.add(v)
+          }
+        }
+      })
+      return any
+    }
+
     let best = ctxs.map((c) => c.picked)
     let bestVal = -1
     let bestCost = Infinity
@@ -364,6 +393,9 @@
         }
         if (!improved) break
       }
+      // pontos liberados pelos nodes que sobraram voltam para a compra
+      for (let i = 0; i < 5 && dropRedundant(trees); i++) fill(trees, alpha)
+      cur = valueOf(trees)
       const spent = spentOf(trees)
       if (cur > bestVal + 1e-9 || (Math.abs(cur - bestVal) <= 1e-9 && spent < bestCost)) {
         best = trees
@@ -431,7 +463,7 @@
     else picked = exact ? solveExact(g, w, terms) : solveHeuristic(g, w, terms, 24)
     if (!picked) return { ok: false, reason: 'unreachable' }
     const requiredPoints = [...picked].reduce((a, v) => a + cost[v], 0)
-    return { ok: true, g, cost, value, picked, exact, requiredPoints }
+    return { ok: true, g, cost, value, picked, exact, requiredPoints, terms: new Set(terms) }
   }
 
   function finish(ctx, picked, extra) {
