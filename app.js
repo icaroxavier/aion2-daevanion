@@ -672,7 +672,7 @@
         if (!t) for (const id of k.ids) { const e = b.byId.get(id).effects.join(' · '); count.set(e, (count.get(e) || 0) + 1) }
         const what = t ? t.effects.join(' · ') : [...count].sort((x, y) => y[1] - x[1]).slice(0, 2).map(([e, c]) => `${e} ×${c}`).join(', ') + (count.size > 2 ? '…' : '')
         const esc = what.replace(/[<>&]/g, '')
-        return `<li><span><b class="ordn">${i + 1}</b> ${esc} <small>${k.ids.length} node${k.ids.length > 1 ? 's' : ''} · peso ${fmt(k.value)}</small></span><span>${k.cost} pts · total ${acc}</span></li>`
+        return `<li><span><b class="ordn">${i + 1}</b> ${esc} <small>${k.ids.length} node${k.ids.length > 1 ? 's' : ''} · ${k.cost} pt${k.cost > 1 ? 's' : ''} · peso ${fmt(k.value)}</small></span><span>${k.cost} pts · total ${acc}</span></li>`
       })
       .join('')
   }
