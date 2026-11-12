@@ -447,7 +447,7 @@
   function computeGuaranteePicks() {
     guaranteePicks = Object.fromEntries(boards.map((b) => [b.id, new Set()]))
     const groups = guaranteeGroups()
-    const all = [...groups.active, ...groups.passive, ...groups.gold]
+    const all = [...groups.active, ...groups.passive, ...groups.gold, ...groups.small]
     const partial = []
     for (const e of all) {
       const n = Math.min(int(cc().guarantee[e.id]), e.count)
@@ -988,6 +988,8 @@
     const pve = boards.filter((b) => !ownPoints(b))
     const skills = new Map()
     const golds = []
+    // nodes pequenos (comuns, 1 ponto): o mesmo tipo somado nas 4 árvores
+    const smalls = new Map()
     for (const b of pve) {
       for (const t of b.types) {
         if (t.skill) {
@@ -999,15 +1001,22 @@
           skills.set(name, e)
         } else if (t.grade === 'Unique') {
           golds.push({ id: t.key + '#' + b.id, key: t.key, label: t.label, boards: [b], count: t.nodes.length, cost: t.nodes.reduce((s, n) => s + n.cost, 0), where: b.name })
+        } else if (t.grade === 'Common') {
+          const e = smalls.get(t.key) || { id: t.key, key: t.key, label: t.label, boards: [], count: 0, cost: 0 }
+          e.boards.push(b)
+          e.count += t.nodes.length
+          e.cost += t.nodes.reduce((s, n) => s + n.cost, 0)
+          smalls.set(t.key, e)
         }
       }
     }
     const list = [...skills.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'))
-    return { active: list.filter((x) => !x.passive), passive: list.filter((x) => x.passive), gold: golds }
+    const small = [...smalls.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'))
+    return { active: list.filter((x) => !x.passive), passive: list.filter((x) => x.passive), gold: golds, small }
   }
   function renderGuarantee() {
     const groups = guaranteeGroups()
-    for (const [id, list] of [['g-active', groups.active], ['g-passive', groups.passive], ['g-gold', groups.gold]]) {
+    for (const [id, list] of [['g-active', groups.active], ['g-passive', groups.passive], ['g-gold', groups.gold], ['g-small', groups.small]]) {
       const box = $(id)
       box.innerHTML = ''
       for (const e of list) {
