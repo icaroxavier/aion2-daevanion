@@ -77,6 +77,13 @@ DPS: Velocidade de Combate 24, Amplificação de Dano 16, Recarga 11, Dano Crít
 vale 25, e Resist. a Acerto Crítico, Tol. a Dano Crítico e Resist. a Golpes
 Múltiplos valem 0 em PvE (chefes não usam esses stats).
 
+Na Azphel (JvJ) valem pesos próprios (`PVP_ATTACK`/`PVP_DEFENSE` em `app.js`):
+num duelo vence quem mata primeiro, então +1% de vida efetiva vale tanto quanto
++1% de dano. Amplificação e Tolerância em JvJ 18, Acerto Crítico e Resistência
+em JvJ 5, Resist. a Alteração de Estado 5, Defesa em JvJ quase nada (o guia diz
+que em JvJ a Defesa só tira 1% do valor). O DPS pesa a defesa em 70% (85% quem
+luta colado; 100% Gladiador e Templário).
+
 "Desempate" (0 a 10 por tipo) só decide entre opções de mesmo peso, como qual
 node de peso 0 usar de passagem, e recebe a sobra de pontos. O solver compara
 primeiro o peso real e só depois o desempate (`opts.tieOf` em `solver.js`),

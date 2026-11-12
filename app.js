@@ -45,7 +45,7 @@
   //   Ataque em JvA / contra Chefe  somam depois do Aumento de Ataque (~15%):
   //                             0,85 e 0,8 (abaixo do Ataque Adicional)
   //   Acerto de Alteração de Estado  chefes resistem                         → 0,5
-  //   Amplif. em JvJ (Azphel)   1% ≈ 0,6% (guia)                    +1,5%    → 18
+  //   (JvJ: ver PVP_ATTACK/PVP_DEFENSE, só na Azphel)
   const ROLES = {
     dps: {
       name: 'DPS',
@@ -53,7 +53,6 @@
         'Attack Bonus': 1, 'Critical Hit': 3, 'Status Effect Chance': 0.5,
         'Damage Boost': 16, 'Multi-hit Chance': 8, 'Critical Damage Boost': 10, 'Cooldown Reduction': 11, 'Combat Speed': 24,
         'PvE Attack': 0.85, 'Boss Attack': 0.8, 'PvE Accuracy': 2, 'PvE Damage Boost': 16, 'Boss Damage Boost': 10,
-        'PvP Attack': 0.85, 'PvP Critical Hit': 3, 'PvP Accuracy': 2, 'PvP Damage Boost': 18,
       },
     },
     // Tank (Gladiador, Templário). Mesma escala, mas a métrica é vida efetiva
@@ -75,9 +74,6 @@
         'Attack Bonus': 0.3, 'Critical Hit': 0.9, 'Damage Boost': 5, 'Multi-hit Chance': 2.4, 'Critical Damage Boost': 3,
         'Combat Speed': 7, 'Cooldown Reduction': 15,
         'PvE Attack': 0.25, 'Boss Attack': 0.25, 'PvE Damage Boost': 5, 'Boss Damage Boost': 3,
-        // Azphel (JvJ): jogadores críticam e têm golpes múltiplos, então as resistências valem lá
-        'PvP Defense': 10, 'PvP Damage Tolerance': 17, 'PvP Critical Hit Resist': 2, 'PvP Evasion': 2,
-        'PvP Attack': 0.25, 'PvP Damage Boost': 5,
       },
       // a montagem automática não espera a escolha de ativas (os pesos das
       // habilidades vêm de skill-model.js)
@@ -94,7 +90,6 @@
         'Attack Bonus': 1, 'Critical Hit': 2, 'Critical Damage Boost': 6, 'Combat Speed': 24, 'Cooldown Reduction': 11,
         HP: 3, 'Defense Bonus': 0.5, 'Damage Tolerance': 10, MP: 1,
         'PvE Defense': 0.5, 'Boss Defense': 0.4, 'PvE Damage Tolerance': 10, 'Boss Damage Tolerance': 6.5,
-        'PvP Attack': 0.85, 'PvP Defense': 2, 'PvP Damage Tolerance': 8, 'Status Effect Resist': 1,
       },
       autoSkills: true,
     },
@@ -112,10 +107,68 @@
     assassin: { dps: CRIT_PASSIVE },
     cleric: { dps: CRIT_PASSIVE },
   }
+  // ---- Azphel (JvJ) -------------------------------------------------------
+  // Pesos que valem só na Azphel (PV e Resist. a Alteração de Estado também
+  // aparecem nas outras árvores, onde seguem as tabelas acima).
+  //
+  // Num duelo vence quem mata primeiro: o poder em JvJ ~ dano × vida efetiva,
+  // então +1% de vida efetiva vale tanto quanto +1% de dano. Na mesma escala
+  // (1,0 ≈ +0,049%):
+  //   Ataque
+  //     Amplif. em JvJ +1,5%     guia: 1% ≈ 0,6%                      → 18
+  //     Ataque em JvJ +3         soma depois do Aumento de Ataque     → 0,85
+  //     Acerto Crítico em JvJ +5 a resistência do alvo te mantém abaixo do teto:
+  //                              +0,33% de chance × crítico ~2,3×     → 5
+  //     Precisão em JvJ +5       jogadores acumulam Bloqueio/Aparar; +0,33% a
+  //                              menos de golpes aparados (~60% do dano)  → 4
+  //     Acerto de Alteração +1%  controle que pega deixa você fechar o combo → 3
+  //   Defesa
+  //     Tol. a Dano em JvJ +1,5% anula a Amplif. em JvJ do outro 1:1  → 18
+  //     Resist. a Acerto Crítico em JvJ +5  espelho do Acerto Crítico → 5
+  //     Resist. a Alteração +1%  menos tempo preso em controle         → 5
+  //     PV +100                  ~30.000 de PV → +0,33%               → 7
+  //     Evasão em JvJ +3         +0,2% de esquiva (estimativa)        → 3
+  //     Defesa em JvJ +30        guia: em JvJ a Defesa só tira 1% do valor → 0,2
+  const PVP_ATTACK = { 'PvP Damage Boost': 18, 'PvP Attack': 0.85, 'PvP Critical Hit': 5, 'PvP Accuracy': 4, 'Status Effect Chance': 3 }
+  const PVP_DEFENSE = { 'PvP Damage Tolerance': 18, 'PvP Critical Hit Resist': 5, 'Status Effect Resist': 5, HP: 7, 'PvP Evasion': 3, 'PvP Defense': 0.2 }
+  // Quanto cada papel conta o ataque e a defesa em JvJ. O DPS de longe pesa a
+  // defesa em 70%; quem luta colado (Assassino, Encantador) em 85%; Gladiador
+  // e Templário, na linha de frente e alvo de todo controle, em 100%. Tank e
+  // Healer medem vida efetiva / cura (1,0 ≈ 0,03%): defesa × 1,6, ataque × 0,3.
+  const PVP_MIX = {
+    dps: { attack: 1, defense: 0.7 },
+    tank: { attack: 0.3, defense: 1.6 },
+    healer: { attack: 0.2, defense: 1 },
+  }
+  const PVP_CLASS = {
+    // Gladiador: vive de controle (Aprisionamento Aéreo, Corte no Tornozelo,
+    // Salto Esmagador) e de ficar colado no alvo
+    gladiator: { dps: { defense: 1, 'Status Effect Chance': 4, 'Status Effect Resist': 6 } },
+    templar: { dps: { defense: 1 } },
+    assassin: { dps: { defense: 0.85 } },
+    chanter: { dps: { defense: 0.85 } },
+  }
+  function pvpWeights(role, cls) {
+    const extra = PVP_CLASS[cls]?.[role] || {}
+    const mix = { ...(PVP_MIX[role] || PVP_MIX.dps), ...('defense' in extra ? { defense: extra.defense } : {}) }
+    const out = {}
+    for (const [k, v] of Object.entries(PVP_ATTACK)) out[k] = round1(v * mix.attack)
+    for (const [k, v] of Object.entries(PVP_DEFENSE)) out[k] = round1(v * mix.defense)
+    for (const [k, v] of Object.entries(extra)) if (k !== 'defense') out[k] = round1(v * (k in PVP_DEFENSE ? mix.defense : mix.attack))
+    return out
+  }
+  const isPvpBoard = (b) => !!b && b.name === 'Azphel'
+
   const WEIGHTS = {}
-  const roleWeights = () => {
-    const k = state.cls + ':' + cc().role
-    return (WEIGHTS[k] = WEIGHTS[k] || { ...(ROLES[cc().role]?.weights || {}), ...(CLASS_WEIGHTS[state.cls]?.[cc().role] || {}) })
+  /** Peso padrão por stat para a classe e o papel abertos (na Azphel, com os de JvJ). */
+  const roleWeights = (b) => {
+    const pvp = isPvpBoard(b)
+    const k = state.cls + ':' + cc().role + (pvp ? ':pvp' : '')
+    return (WEIGHTS[k] = WEIGHTS[k] || {
+      ...(ROLES[cc().role]?.weights || {}),
+      ...(CLASS_WEIGHTS[state.cls]?.[cc().role] || {}),
+      ...(pvp ? pvpWeights(cc().role, state.cls) : {}),
+    })
   }
   const ABBR = {
     'Attack Bonus': 'ATQ', 'Critical Hit': 'CRI', 'Critical Hit Resist': 'RCR', 'Defense Bonus': 'DEF', HP: 'PV', MP: 'PM',
@@ -351,9 +404,9 @@
   const skillsSettled = () => !!ROLES[cc().role]?.autoSkills || cc().skillsDone || anyActivePicked() || anySkillRequired()
 
   // ---- pesos, obrigatórios, cálculo -----------------------------------------
-  const roleWeight = (t) => {
+  const roleWeight = (t, b) => {
     if (t.skill) return skillWeight(t.nodes[0].skill)
-    const w = roleWeights()
+    const w = roleWeights(b)
     return t.stats.reduce((s, st, i) => {
       const v = STAT_UNIT[st] && +(/\+([\d.]+)%?$/.exec(t.nodes[0].effects[i] || '') || [])[1]
       return s + (w[st] || 0) * (v ? v / STAT_UNIT[st] : 1)
@@ -363,7 +416,7 @@
   const nodeValue = (b, n) => (n.typeKey ? weightOf(b, n.typeKey) + TIE_STEP * (cfg(b).ties[n.typeKey] || 0) : 0)
   const weightOf = (b, key) => {
     const w = cfg(b).weights[key]
-    return w === undefined ? roleWeight(b.typeByKey.get(key)) : w
+    return w === undefined ? roleWeight(b.typeByKey.get(key), b) : w
   }
   const requiredBase = (b) => {
     const set = new Set(cfg(b).reqNodes)
@@ -440,7 +493,7 @@
       const c = cfg(bd)
       const o = {}
       const w = {}
-      for (const t of bd.types) if (c.weights[t.key] !== undefined && c.weights[t.key] !== roleWeight(t)) w[repId(t)] = c.weights[t.key]
+      for (const t of bd.types) if (c.weights[t.key] !== undefined && c.weights[t.key] !== roleWeight(t, bd)) w[repId(t)] = c.weights[t.key]
       if (Object.keys(w).length) o.w = w
       const e = {}
       for (const t of bd.types) if (c.ties[t.key] > 0) e[repId(t)] = c.ties[t.key]
