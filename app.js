@@ -1026,9 +1026,20 @@
         row.setAttribute('aria-pressed', n > 0)
         row.title = `${e.count} node${e.count > 1 ? 's' : ''} no total · ${e.cost} pts para pegar todos`
         const inputId = 'q-' + e.id.replace(/[^a-z0-9]+/gi, '-')
+        // mínimo parcial em várias árvores: mostra em quais os nodes garantidos ficaram
+        let where = e.where || ''
+        if (!where && n > 0 && n < e.count && e.boards.length > 1) {
+          where = e.boards
+            .map((b) => {
+              const k = b.typeByKey.get(e.key).nodes.filter((x) => (guaranteePicks[b.id] || new Set()).has(x.id)).length
+              return k ? b.name + (k > 1 ? ` ×${k}` : '') : ''
+            })
+            .filter(Boolean)
+            .join(', ')
+        }
         row.innerHTML =
           (e.icon ? `<img src="${e.icon}" alt="">` : '') +
-          `<label for="${inputId}"><span></span>${e.where ? `<small>${e.where}</small>` : ''}</label>` +
+          `<label for="${inputId}"><span></span>${where ? `<small>${where}</small>` : ''}</label>` +
           `<input class="qty" type="number" id="${inputId}" min="0" max="${e.count}" step="1" value="${n || ''}" placeholder="0">` +
           `<small class="of">/${e.count}</small><button type="button" class="max">Máx</button>`
         row.querySelector('span').textContent = e.label
