@@ -587,11 +587,17 @@
     const trees = ctxs.map((c) => (c.ok ? new Set(c.picked) : null))
     const chosen = items.map(() => [])
     let need = n
+    // Candidatos que já estão no caminho contam, mas viram escolhidos (obrigatórios):
+    // se fossem só passagem, outro "garantir" depois poderia mudar o caminho e
+    // tirá-los, e o mínimo pedido não seria cumprido.
     ctxs.forEach((c, k) => {
       if (!c.ok) return
       for (const id of candidates[k]) {
+        if (need <= 0) break
         const i = c.g.indexOfId.get(id)
-        if (i !== undefined && (trees[k].has(i) || c.cost[i] === 0)) need--
+        if (i === undefined || !(trees[k].has(i) || c.cost[i] === 0)) continue
+        need--
+        if (c.cost[i] > 0) chosen[k].push(id)
       }
     })
     while (need > 0) {
