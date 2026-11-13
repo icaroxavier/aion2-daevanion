@@ -271,7 +271,7 @@
       ctxs.map((c, k) => {
         const total = vals[k].reduce((x, y) => x + y, 0)
         const eps = 0.5 / (total + 1)
-        return c.cost.map((x, i) => Math.max(MIN_WEIGHT, x - eps * vals[k][i]))
+        return c.cost.map((x, i) => (x === 0 ? 0 : Math.max(MIN_WEIGHT, x - eps * vals[k][i])))
       })
 
     /**
@@ -452,26 +452,29 @@
   /** Resolve só a parte obrigatória de uma board; devolve o contexto pro resto. */
   // A parte obrigatória é o passo caro (DP exata) e se repete muito entre um
   // cálculo e outro: guarda os últimos resultados pela entrada completa.
-  const BASE_CACHE = new Map()
+  // um cache por objeto de board (boards sem id ou de classes diferentes não colidem)
+  const BASE_CACHE = new WeakMap()
   const BASE_CACHE_MAX = 300
+  const idList = (xs) => JSON.stringify([...new Set(xs || [])].map((x) => typeof x + ':' + x).sort())
   function base(board, requiredIds, opts) {
     const o = opts || {}
     const valueOf = o.valueOf !== Object.prototype.valueOf && typeof o.valueOf === 'function' ? o.valueOf : () => 0
+    if (!BASE_CACHE.has(board)) BASE_CACHE.set(board, new Map())
+    const cache = BASE_CACHE.get(board)
     const key = [
-      board.id ?? '', [...new Set(requiredIds)].sort().join(','), [...(o.blockedIds || [])].sort().join(','),
-      [...(o.freeIds || [])].sort().join(','), o.lambda || 0, o.forceHeuristic ? 1 : 0,
+      idList(requiredIds), idList(o.blockedIds), idList(o.freeIds), o.lambda || 0, o.forceHeuristic ? 1 : 0,
       board.nodes.map((n) => valueOf(n) || 0).join(','),
       typeof o.tieOf === 'function' ? board.nodes.map((n) => o.tieOf(n) || 0).join(',') : '',
     ].join('|')
-    if (BASE_CACHE.has(key)) {
-      const hit = BASE_CACHE.get(key)
-      BASE_CACHE.delete(key)
-      BASE_CACHE.set(key, hit) // LRU: volta para o fim
+    if (cache.has(key)) {
+      const hit = cache.get(key)
+      cache.delete(key)
+      cache.set(key, hit) // LRU: volta para o fim
       return hit.ok ? { ...hit, picked: new Set(hit.picked) } : hit
     }
     const out = baseUncached(board, requiredIds, o)
-    BASE_CACHE.set(key, out)
-    if (BASE_CACHE.size > BASE_CACHE_MAX) BASE_CACHE.delete(BASE_CACHE.keys().next().value)
+    cache.set(key, out)
+    if (cache.size > BASE_CACHE_MAX) cache.delete(cache.keys().next().value)
     return out.ok ? { ...out, picked: new Set(out.picked) } : out
   }
 
@@ -496,7 +499,8 @@
     const free = o.freeIds || new Set()
     const cost = g.nodes.map((n, i) => (i === g.start || free.has(n.id) ? 0 : n.cost))
     for (let i = 0; i < value.length; i++) if (cost[i] === 0) value[i] = real[i] = tie[i] = 0
-    const w = g.nodes.map((n, i) => (i === g.start ? 0 : cost[i] === 0 ? MIN_WEIGHT : Math.max(MIN_WEIGHT, cost[i] - t * value[i])))
+    // já aberto = peso 0 (um mínimo aqui engolia o desempate, que é menor que ele)
+    const w = g.nodes.map((n, i) => (i === g.start || cost[i] === 0 ? 0 : Math.max(MIN_WEIGHT, cost[i] - t * value[i])))
 
     const terms = []
     for (const id of new Set(requiredIds)) {
@@ -566,6 +570,8 @@
     const ctxs = items.map((it) => base(it.board, it.requiredIds, it.opts))
     const good = ctxs.filter((c) => c.ok)
     const required = good.reduce((a, c) => a + c.requiredPoints, 0)
+    // orçamento inválido (NaN, negativo, vazio): só a parte obrigatória, sem montagem
+    if (!(budget >= 0)) return ctxs.map((c) => (c.ok ? finish(c, c.picked) : c))
     const over = required > budget
     const trees = over ? good.map((c) => c.picked) : expandMany(good, budget)
     let k = 0
@@ -583,6 +589,7 @@
    * @returns          [[ids escolhidos]] por item
    */
   function pickNearest(items, candidates, n) {
+    candidates = candidates.map((list) => [...new Set(list)])
     const ctxs = items.map((it) => base(it.board, it.requiredIds, it.opts))
     const trees = ctxs.map((c) => (c.ok ? new Set(c.picked) : null))
     const chosen = items.map(() => [])
@@ -608,7 +615,7 @@
         if (!cand.length) return
         const total = c.value.reduce((a, b) => a + b, 0)
         const eps = 0.5 / (total + 1)
-        const w = c.cost.map((x, i) => Math.max(MIN_WEIGHT, x - eps * c.value[i]))
+        const w = c.cost.map((x, i) => (x === 0 ? 0 : Math.max(MIN_WEIGHT, x - eps * c.value[i])))
         const nn = c.g.nodes.length
         const dist = new Float64Array(nn).fill(Infinity)
         const prev = new Int32Array(nn).fill(-1)
