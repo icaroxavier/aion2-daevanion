@@ -18,6 +18,14 @@ async function get(url) {
   if (!res.ok) throw Object.assign(new Error('A API oficial respondeu ' + res.status), { status: 502 })
   return res.json()
 }
+// um id malformado vindo da API não derruba a busca inteira
+const safeDecode = (x) => {
+  try {
+    return decodeURIComponent(String(x))
+  } catch (e) {
+    return String(x)
+  }
+}
 const bad = (msg) => Object.assign(new Error(msg), { status: 400 })
 
 // pcId → classe (ex.: 5 → "gladiator"); muda raramente, fica em memória
@@ -25,7 +33,10 @@ const classCache = {}
 async function classOf(region) {
   if (!classCache[region]) {
     const d = await get(`${SITE}/en-us/api/gameinfo/pcdata?lang=en-US&region=${region}`)
-    classCache[region] = Object.fromEntries((d.pcDataList || []).map((p) => [p.id, String(p.className).toLowerCase()]))
+    const map = Object.fromEntries((d.pcDataList || []).map((p) => [p.id, String(p.className).toLowerCase()]))
+    // resposta vazia não fica em cache (senão a importação falharia até a função reiniciar)
+    if (!Object.keys(map).length) return map
+    classCache[region] = map
   }
   return classCache[region]
 }
@@ -50,7 +61,7 @@ module.exports = async (req, res) => {
       const [d, classes] = await Promise.all([get(`${SEARCH}?${params}`), classOf(region)])
       return res.status(200).json({
         results: (d.list || []).map((c) => ({
-          id: decodeURIComponent(c.characterId),
+          id: safeDecode(c.characterId),
           name: String(c.name).replace(/<[^>]+>/g, ''),
           level: c.level,
           serverId: c.serverId,
@@ -72,7 +83,7 @@ module.exports = async (req, res) => {
       ])
       const boardIds = (info.daevanion?.boardList || []).map((b) => b.id)
       const details = await Promise.all(
-        boardIds.map((id) => get(`${SITE}/api/character/daevanion/detail?${base}&boardId=${id}`).catch(() => null))
+        boardIds.map((id) => get(`${SITE}/api/character/daevanion/detail?${base}&boardId=${encodeURIComponent(id)}`).catch(() => null))
       )
       const boards = {}
       boardIds.forEach((id, i) => {
@@ -90,6 +101,7 @@ module.exports = async (req, res) => {
 
     throw bad('Operação inválida')
   } catch (e) {
-    res.status(e.status || 500).json({ error: e.message || 'Falha ao consultar a API oficial' })
+    // erros nossos (400/502) têm texto para o usuário; o resto vira uma mensagem genérica
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Falha ao consultar a API oficial' })
   }
 }

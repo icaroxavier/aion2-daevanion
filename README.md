@@ -24,9 +24,10 @@ O problema é uma árvore de Steiner com peso nos nodes: achar o conjunto conexo
 
 ## Salvar e compartilhar
 
-Nada é guardado no navegador. O endereço da página carrega a configuração da
-classe aberta (`#s=...`) e "Salvar em arquivo" grava um JSON com todas as
-classes. O arquivo tem `schema`; `migrate()` em `app.js` leva versões antigas
+O endereço da página carrega a configuração da classe aberta (`#s=...`) e
+"Salvar em arquivo" grava um JSON com todas as classes. O navegador só guarda o
+último endereço usado, para reabrir de onde parou. Pesos editados ficam
+guardados por papel (DPS, Tank, Healer). O arquivo tem `schema`; `migrate()` em `app.js` leva versões antigas
 até a atual, e `adopt()` descarta o que não existe mais nos dados do jogo.
 Links antigos (v1) continuam abrindo.
 
@@ -108,8 +109,8 @@ então o desempate nunca custa peso.
 
 ## Habilidades e fontes de pontos
 
-Ativas: o jogador marca as que importam (peso 10 por +1 nível). Passivas:
-entram marcadas com peso estimado pela amostra. A montagem automática só roda
-depois dessa escolha e pode dividir um total de pontos entre as 4 árvores
+Ativas: o jogador marca as que importam; no DPS, as ativas-chave da classe já
+vêm marcadas. Passivas entram marcadas. O peso de cada uma vem de
+`skill-model.js` (ver acima). A montagem automática pode dividir um total de pontos entre as 4 árvores
 (Ariel e Azphel usam pontos próprios). A seção "Fontes de pontos" soma nível, missões
 regionais, masmorras seladas e lojas (contagens do guia do MetaBot).

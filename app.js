@@ -30,7 +30,7 @@
   // Ataque (razão do guia) → +3 ≈ 0,049% de dano. Os outros stats, em % de dano
   // marginal:
   //   Amplif. de Dano / em JvA  1% ≈ 0,5% (soma ~100%, já com a resistência do
-  //                             chefe; no KR ~180% → 0,35%)   +1,5% → 0,75% → 16
+  //                             chefe; no KR ~180% → 0,35%)   +1,5% → 0,75% → ~15–16
   //   Amplif. contra Chefe +1%  mesmo balde, só em chefe                     → 10
   //   Dano Crítico              teto de 50% de crítico no Global, −25% do chefe;
   //                             sem passiva de Dano Crítico (~90%): 0,32% por 1% → 10
@@ -108,8 +108,8 @@
     cleric: { dps: CRIT_PASSIVE },
   }
   // ---- Azphel (JvJ) -------------------------------------------------------
-  // Pesos que valem só na Azphel (PV e Resist. a Alteração de Estado também
-  // aparecem nas outras árvores, onde seguem as tabelas acima).
+  // Pesos que valem só na Azphel (PV também aparece nas outras árvores, onde
+  // segue as tabelas acima; Alteração de Estado só existe aqui).
   //
   // Num duelo vence quem mata primeiro: o poder em JvJ ~ dano × vida efetiva,
   // então +1% de vida efetiva vale tanto quanto +1% de dano. Na mesma escala
@@ -133,8 +133,9 @@
   const PVP_DEFENSE = { 'PvP Damage Tolerance': 18, 'PvP Critical Hit Resist': 5, 'Status Effect Resist': 5, HP: 7, 'PvP Evasion': 3, 'PvP Defense': 0.2 }
   // Quanto cada papel conta o ataque e a defesa em JvJ. O DPS de longe pesa a
   // defesa em 70%; quem luta colado (Assassino, Encantador) em 85%; Gladiador
-  // e Templário, na linha de frente e alvo de todo controle, em 100%. Tank e
-  // Healer medem vida efetiva / cura (1,0 ≈ 0,03%): defesa × 1,6, ataque × 0,3.
+  // e Templário, na linha de frente e alvo de todo controle, em 100%. O Tank
+  // mede vida efetiva (1,0 ≈ 0,03%): defesa × 1,6, ataque × 0,3. O Healer
+  // mede cura: defesa × 1, ataque × 0,2.
   const PVP_MIX = {
     dps: { attack: 1, defense: 0.7 },
     tank: { attack: 0.3, defense: 1.6 },
@@ -255,7 +256,8 @@
     },
   }
   // ties: desempate por tipo (0 a 10), só decide entre opções de mesmo peso
-  const emptyBoard = () => ({ weights: {}, ties: {}, reqTypes: [], reqNodes: [], blocked: [], owned: [], budget: 0 })
+  // roleWeights: pesos editados dos outros papéis ({ papel: { typeKey: n } }); weights é o do papel aberto
+  const emptyBoard = () => ({ weights: {}, roleWeights: {}, ties: {}, reqTypes: [], reqNodes: [], blocked: [], owned: [], budget: 0 })
   const emptySources = () => ({ level: 0, quests: 0, dungeons: 0, festival: 0, nightmare: 0, other: 0 })
   // Desempate: inteiro de 0 a 10 por tipo. Entra no valor do node vezes TIE_STEP,
   // tão pequeno que a soma de todos os desempates de uma build (< 600 nodes ×
@@ -270,7 +272,8 @@
   function migrate(raw) {
     if (!raw || typeof raw !== 'object' || typeof raw.classes !== 'object' || !raw.classes) return null
     let s = JSON.parse(JSON.stringify(raw))
-    let v = Number.isInteger(s.schema) ? s.schema : 2
+    let v = Number(s.schema)
+    if (!Number.isInteger(v) || v < 2) v = 2
     if (v > SCHEMA) return { future: v }
     while (v < SCHEMA) {
       if (MIGRATIONS[v]) s = MIGRATIONS[v](s)
@@ -296,6 +299,14 @@
       // garantir na build: { idDoGrupo: quantos nodes } (ver guaranteeGroups)
       c.guarantee = c.guarantee && typeof c.guarantee === 'object' ? c.guarantee : {}
       for (const [k, n] of Object.entries(c.guarantee)) if (!(int(n) > 0)) delete c.guarantee[k]
+      // personagem importado: só o que dá para usar (um arquivo editado à mão não pode travar a página)
+      if (c.char && typeof c.char === 'object') {
+        c.char = {
+          ...c.char,
+          name: String(c.char.name || ''), server: String(c.char.server || ''), level: int(c.char.level, 99),
+          skills: (Array.isArray(c.char.skills) ? c.char.skills : []).filter((x) => x && typeof x === 'object' && typeof x.name === 'string'),
+        }
+      } else delete c.char
       c.boards = c.boards && typeof c.boards === 'object' ? c.boards : {}
       for (const [id, b] of Object.entries(c.boards)) {
         if (!b || typeof b !== 'object') {
@@ -304,6 +315,8 @@
         }
         b.weights = b.weights && typeof b.weights === 'object' ? b.weights : {}
         b.ties = b.ties && typeof b.ties === 'object' ? b.ties : {}
+        b.roleWeights = b.roleWeights && typeof b.roleWeights === 'object' ? b.roleWeights : {}
+        for (const [r, w] of Object.entries(b.roleWeights)) if (!ROLES[r] || !w || typeof w !== 'object') delete b.roleWeights[r]
         b.reqTypes = Array.isArray(b.reqTypes) ? b.reqTypes.filter((k) => typeof k === 'string') : []
         b.reqNodes = ids(b.reqNodes)
         b.blocked = ids(b.blocked)
@@ -337,6 +350,11 @@
         if (key && tieValue(n) > 0) ties[key] = tieValue(n)
       }
       cfgB.ties = ties
+      for (const [r, w] of Object.entries(cfgB.roleWeights || {})) {
+        const out = {}
+        for (const [k, v] of Object.entries(w)) if (keyOf(k) && isFinite(+v) && +v >= 0) out[keyOf(k)] = +v
+        cfgB.roleWeights[r] = out
+      }
       cfgB.reqTypes = [...new Set(cfgB.reqTypes.map(keyOf).filter(Boolean))]
       const real = (id) => b.byId.has(id) && b.byId.get(id).type !== 'Start'
       cfgB.reqNodes = cfgB.reqNodes.filter(real)
@@ -345,7 +363,7 @@
     }
   }
 
-  // Nada é guardado no navegador: o estado vive no endereço da página (#s=...)
+  // O estado vive no endereço da página (#s=...); o navegador só guarda o último endereço (LAST_URL)
   // e no arquivo exportado.
   let state = { schema: SCHEMA, cls: null, lambda: 0, classes: {} }
   const storageNote = ''
@@ -374,7 +392,7 @@
     return MODEL[k]
   }
   const modelWeight = (name) => (model()[name] || { weight: 0 }).weight
-  const HOW = { 'dano/s': 'dano por segundo', 'cura/s': 'cura por segundo', efeito: 'efeito por nível', amostra: 'uso entre jogadores', tipo: 'tipo da skill', 'efeito de outro papel': 'efeito não serve para este papel' }
+  const HOW = { 'dano/s': 'dano por segundo', 'cura/s': 'cura por segundo', efeito: 'efeito por nível', amostra: 'uso entre jogadores', tipo: 'tipo da skill', 'efeito de outro papel': 'efeito não serve para este papel', 'efeito fixo': 'efeito não cresce com o nível', 'participação no dano': 'participação no dano (medidor)' }
   const stats = () => (window.DAEVANION_SKILL_STATS || {})[state.cls] || { skills: {} }
   const skillStat = (name) => stats().skills[name]
   const isPassive = (name) => (skillStat(name) || {}).cat === 'Passive'
@@ -475,8 +493,6 @@
       results[b.id] = solve(b, requiredIds(b), { ...solveOpts(b), budget: auto || !hasSkills(b) ? cfg(b).budget : 0 })
     }
   }
-  // com o total compartilhado ligado, mexer numa árvore muda as outras
-  const compute = (b) => ((poolActive() && !ownPoints(b)) || anyGuarantee() ? recomputeAll() : (results[b.id] = solve(b, requiredIds(b), { ...solveOpts(b), budget: skillsSettled() || !hasSkills(b) ? cfg(b).budget : 0 })))
 
   // ---- link compartilhável: #s=<base64url do estado compacto> ---------------
   // v2: { v, c: classe, l: critério, p: total compartilhado, d: skillsDone,
@@ -506,7 +522,8 @@
       if (c.budget > 0) o.g = c.budget
       if (Object.keys(o).length) b[bd.id] = o
     }
-    const out = { v: 2, c: state.cls, r: cc().role, l: state.lambda, b }
+    // dv: versão dos padrões; links sem ela são de antes das ativas-chave marcadas por padrão (08/11)
+    const out = { v: 2, dv: 2, c: state.cls, r: cc().role, l: state.lambda, b }
     if (cc().pool > 0) out.p = cc().pool
     if (cc().skillsDone) out.d = 1
     if (Object.keys(cc().guarantee).length) out.q = cc().guarantee
@@ -539,24 +556,29 @@
     state.cls = o.c
     state.lambda = Math.min(1, Math.max(0, +o.l || 0))
     const keep = state.classes[o.c] || {}
-    const c = (state.classes[o.c] = normalize({ classes: { [o.c]: { role: CLASSES.find((x) => x.slug === o.c).roles.includes(o.r) ? o.r : 'dps', char: keep.char, sources: keep.sources } } }).classes[o.c])
+    const arr = (x) => (Array.isArray(x) ? x : [])
+    const obj = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : {})
+    // links v1 não guardavam personagem nem fontes: mantém os desta aba; v2 traz os seus (ou nenhum)
+    const c = (state.classes[o.c] = normalize({ classes: { [o.c]: { role: CLASSES.find((x) => x.slug === o.c).roles.includes(o.r) ? o.r : 'dps', ...(o.v >= 2 ? {} : { char: keep.char, sources: keep.sources }) } } }).classes[o.c])
     c.pool = int(o.p)
     c.skillsDone = !!o.d
-    if (o.q && typeof o.q === 'object') for (const [k, n] of Object.entries(o.q)) if (int(n) > 0) c.guarantee[k] = int(n)
-    for (const name of o.k || []) c.skills[name] = true
-    for (const name of o.u || []) c.skills[name] = false
+    for (const [k, n] of Object.entries(obj(o.q))) if (int(n) > 0) c.guarantee[k] = int(n)
+    for (const name of arr(o.k)) if (typeof name === 'string') c.skills[name] = true
+    for (const name of arr(o.u)) if (typeof name === 'string') c.skills[name] = false
+    // antes de dv 2, as ativas-chave do DPS vinham desmarcadas por padrão
+    if (!(o.dv >= 2) && c.role === 'dps') for (const name of window.DaevanionSkillModel.keyActives(o.c)) if (!(name in c.skills)) c.skills[name] = false
     if (Array.isArray(o.h)) {
       c.char = { name: String(o.h[0] || ''), level: int(o.h[1], 99), server: String(o.h[2] || ''), skills: (Array.isArray(o.h[3]) ? o.h[3] : []).map((name) => ({ name: String(name), cat: 'Active', equip: true })) }
     } else if (o.v >= 2) delete c.char
     if (Array.isArray(o.s)) ['level', 'quests', 'dungeons', 'festival', 'nightmare', 'other'].forEach((f, i) => (c.sources[f] = int(o.s[i])))
     for (const bd of prepared) {
-      const src = (o.b || {})[bd.id]
-      if (!src) continue
+      const src = obj(obj(o.b)[bd.id])
+      if (!Object.keys(src).length) continue
       const dst = (c.boards[bd.id] = emptyBoard())
       const typeOf = (ref) => (o.v >= 2 ? bd.typeByKey.get(bd.byId.get(+ref)?.typeKey) : bd.types[ref])
-      for (const [ref, w] of Object.entries(src.w || {})) if (typeOf(ref) && isFinite(+w) && +w >= 0) dst.weights[typeOf(ref).key] = +w
-      for (const [ref, n] of Object.entries(src.e || {})) if (typeOf(ref) && tieValue(n) > 0) dst.ties[typeOf(ref).key] = tieValue(n)
-      dst.reqTypes = (src.t || []).map(typeOf).filter(Boolean).map((t) => t.key)
+      for (const [ref, w] of Object.entries(obj(src.w))) if (typeOf(ref) && isFinite(+w) && +w >= 0) dst.weights[typeOf(ref).key] = +w
+      for (const [ref, n] of Object.entries(obj(src.e))) if (typeOf(ref) && tieValue(n) > 0) dst.ties[typeOf(ref).key] = tieValue(n)
+      dst.reqTypes = arr(src.t).map(typeOf).filter(Boolean).map((t) => t.key)
       dst.reqNodes = ids(src.n)
       dst.blocked = ids(src.x)
       dst.owned = ids(src.o)
@@ -594,8 +616,14 @@
       if (next.future) throw new Error('o arquivo é de uma versão mais nova da página; recarregue e tente de novo')
       delete next.app
       delete next.exportedAt
+      const prev = state
       state = next
-      for (const slug of Object.keys(PREP)) adopt(slug)
+      try {
+        for (const slug of Object.keys(PREP)) adopt(slug)
+      } catch (err) {
+        state = prev
+        throw new Error('o conteúdo está inconsistente')
+      }
       await open()
       fileMsg('Arquivo aberto.')
     } catch (e) {
@@ -685,7 +713,7 @@
     if (n.type === 'Start') return `<b>${n.name}</b> — ponto de partida, sem custo.`
     const req = requiredIds(b).has(n.id)
     const byType = cfg(b).reqTypes.includes(n.typeKey)
-    const flags = [cfg(b).blocked.includes(n.id) ? 'bloqueado' : '', cfg(b).owned.includes(n.id) ? 'já aberto no personagem' : '', req ? (byType ? 'obrigatório pelo tipo' : 'obrigatório') : '',
+    const flags = [cfg(b).blocked.includes(n.id) ? 'bloqueado' : '', cfg(b).owned.includes(n.id) ? 'já aberto no personagem' : '', req ? (byType ? 'obrigatório pelo tipo' : cfg(b).reqNodes.includes(n.id) ? 'obrigatório' : 'obrigatório pelo “Garantir na build”') : '',
       results[b.id]?.ok && results[b.id].ids.has(n.id) ? 'no caminho' : ''].filter(Boolean).join(', ')
     const step = blockOf(b).get(n.id)
     return `<b>${n.effects.join(' · ')}</b> — ${n.cost} ${n.cost > 1 ? 'pontos' : 'ponto'}, peso ${fmt(weightOf(b, n.typeKey))}` +
@@ -777,6 +805,7 @@
 
   function renderResult() {
     const b = active, r = results[b.id]
+    if (!r) return // ainda calculando
     $('res-title').textContent = 'Resultado · ' + b.name
     const badge = $('res-badge')
     if (!r.ok) {
@@ -1028,14 +1057,21 @@
         const inputId = 'q-' + e.id.replace(/[^a-z0-9]+/gi, '-')
         // mínimo parcial em várias árvores: mostra em quais os nodes garantidos ficaram
         let where = e.where || ''
+        // garantidos ou já abertos no personagem
+        const kept = (b, x) => (guaranteePicks[b.id] || new Set()).has(x.id) || cfg(b).owned.includes(x.id)
         if (!where && n > 0 && n < e.count && e.boards.length > 1) {
           where = e.boards
             .map((b) => {
-              const k = b.typeByKey.get(e.key).nodes.filter((x) => (guaranteePicks[b.id] || new Set()).has(x.id)).length
+              const k = b.typeByKey.get(e.key).nodes.filter((x) => kept(b, x)).length
               return k ? b.name + (k > 1 ? ` ×${k}` : '') : ''
             })
             .filter(Boolean)
             .join(', ')
+        }
+        // mínimo que não deu para cumprir (bloqueios isolam os nodes, por exemplo)
+        if (n > 0) {
+          const got = e.boards.reduce((a, b) => a + b.typeByKey.get(e.key).nodes.filter((x) => results[b.id]?.ok && (results[b.id].ids.has(x.id) || cfg(b).owned.includes(x.id))).length, 0)
+          if (Object.keys(results).length && got < n) where = (where ? where + ' · ' : '') + `só ${got} alcançáve${got === 1 ? 'l' : 'is'}`
         }
         row.innerHTML =
           (e.icon ? `<img src="${e.icon}" alt="">` : '') +
@@ -1043,10 +1079,12 @@
           `<input class="qty" type="number" id="${inputId}" min="0" max="${e.count}" step="1" value="${n || ''}" placeholder="0">` +
           `<small class="of">/${e.count}</small><button type="button" class="max">Máx</button>`
         row.querySelector('span').textContent = e.label
+        const owner = cc()
         const set = (v) => {
+          if (cc() !== owner) return // trocou de classe durante a espera
           v = Math.min(int(v), e.count)
-          if (v > 0) cc().guarantee[e.id] = v
-          else delete cc().guarantee[e.id]
+          if (v > 0) owner.guarantee[e.id] = v
+          else delete owner.guarantee[e.id]
           refresh()
         }
         const inp = row.querySelector('input')
@@ -1093,6 +1131,11 @@
   function toggleNode(id, how) {
     const c = cfg(active)
     const flip = (arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id])
+    // obrigatório pelo tipo ou pelo "Garantir": o clique não solta (só explica de onde vem)
+    if (how !== 'block' && !c.reqNodes.includes(id) && requiredIds(active).has(id)) {
+      $('info').innerHTML = describe(active, active.byId.get(id)) + ' — para soltar, desmarque o tipo em “Tipos de node” ou diminua o “Garantir na build”.'
+      return
+    }
     if (how === 'block') { c.blocked = flip(c.blocked); c.reqNodes = c.reqNodes.filter((x) => x !== id) }
     else { c.reqNodes = flip(c.reqNodes); c.blocked = c.blocked.filter((x) => x !== id) }
     changed(active)
@@ -1148,28 +1191,38 @@
     }
   }
   /** Carrega a classe atual (se houver) e redesenha tudo. */
+  // cada abertura tem um número: se outra classe for aberta antes desta terminar
+  // de carregar, esta desiste (senão a tela mistura as árvores de uma com a outra)
+  let openGen = 0
   async function open() {
+    const gen = ++openGen
+    const slug = state.cls
     boards = []
     results = {}
     renderChooser()
-    if (!state.cls) return
+    if (!slug) return
+    let prepared
     try {
-      boards = await loadClass(state.cls)
+      prepared = await loadClass(slug)
     } catch (e) {
+      if (gen !== openGen) return
       $('need').hidden = false
       $('need').textContent = e.message
       return
     }
+    if (gen !== openGen || state.cls !== slug) return
+    boards = prepared
     active = boards[0]
     if (!cc().role || !classInfo().roles.includes(cc().role)) cc().role = classInfo().roles[0]
     setStatus('busy')
     await new Promise((r) => setTimeout(r, 40))
+    if (gen !== openGen) return
     try {
       recomputeAll()
       save()
       renderAll()
     } finally {
-      setStatus(null)
+      if (gen === openGen) setStatus(null)
     }
   }
   function pickClass(slug) {
@@ -1177,7 +1230,16 @@
     open()
   }
   function pickRole(r) {
-    cc().role = r
+    const c = cc()
+    if (c.role && c.role !== r) {
+      for (const b of Object.values(c.boards)) {
+        b.roleWeights = b.roleWeights || {}
+        if (Object.keys(b.weights).length) b.roleWeights[c.role] = b.weights
+        b.weights = b.roleWeights[r] || {}
+        delete b.roleWeights[r]
+      }
+    }
+    c.role = r
     recomputeAll(); save(); renderAll()
   }
   const refresh = () => { save(); renderAll(); schedule() }
@@ -1191,6 +1253,8 @@
   }
   $('clear').onclick = () => {
     Object.assign(cfg(active), { reqTypes: [], reqNodes: [], blocked: [] })
+    // douradinhos garantidos só desta árvore saem junto (os de várias árvores ficam no "Garantir")
+    for (const k of Object.keys(cc().guarantee)) if (k.endsWith('#' + active.id)) delete cc().guarantee[k]
     refresh()
   }
   // volta os pesos de todas as árvores da classe ao padrão do papel
@@ -1263,7 +1327,12 @@
     sel.innerHTML = '<option value="">Todos os servidores</option>'
     try {
       const d = await api({ op: 'servers', region: $('char-region').value })
-      for (const s of d.servers) sel.insertAdjacentHTML('beforeend', `<option value="${s.id}">${s.name}</option>`)
+      for (const s of d.servers) {
+        const opt = document.createElement('option')
+        opt.value = String(s.id)
+        opt.textContent = String(s.name)
+        sel.appendChild(opt)
+      }
     } catch (e) {} // sem a lista, a busca ainda funciona em todos os servidores
   }
   async function searchChar() {
@@ -1279,8 +1348,9 @@
         const cls = CLASSES.find((x) => x.slug === c.cls)
         const bt = document.createElement('button')
         bt.type = 'button'; bt.className = 'tab'
-        bt.innerHTML = `<span></span><small>${cls ? cls.name : 'classe ?'} · nv ${c.level} · ${c.server}</small>`
+        bt.innerHTML = '<span></span><small></small>'
         bt.firstChild.textContent = c.name
+        bt.lastChild.textContent = `${cls ? cls.name : 'classe ?'} · nv ${c.level} · ${c.server}`
         bt.onclick = () => importChar(c)
         $('char-results').appendChild(bt)
       }

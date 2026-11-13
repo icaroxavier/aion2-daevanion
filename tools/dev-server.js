@@ -16,7 +16,9 @@ http
   .createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost')
     // só local: tools/og.html grava os PNGs gerados (ícones e imagem de compartilhamento)
-    if (req.method === 'POST' && url.pathname === '/__save' && /^[a-z0-9-]+\.png$/.test(url.searchParams.get('name') || '')) {
+    // só aceita de páginas do próprio servidor (outro site aberto no navegador não grava arquivos)
+    const sameOrigin = !req.headers.origin || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(req.headers.origin)
+    if (req.method === 'POST' && url.pathname === '/__save' && sameOrigin && /^[a-z0-9-]+\.png$/.test(url.searchParams.get('name') || '')) {
       let body = ''
       req.on('data', (c) => (body += c))
       req.on('end', () => {
@@ -34,8 +36,16 @@ http
       }
       return handler(req, res)
     }
-    const file = path.join(ROOT, url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname))
-    if (!file.startsWith(ROOT)) return res.writeHead(403).end()
+    let rel
+    try {
+      rel = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname)
+    } catch (e) {
+      return res.writeHead(400).end()
+    }
+    const file = path.join(ROOT, rel)
+    // dentro da pasta do projeto (startsWith deixaria passar uma pasta irmã com o mesmo prefixo)
+    const inside = path.relative(ROOT, file)
+    if (inside.startsWith('..') || path.isAbsolute(inside)) return res.writeHead(403).end()
     fs.readFile(file, (err, data) => {
       if (err) return res.writeHead(404).end()
       res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream' })
