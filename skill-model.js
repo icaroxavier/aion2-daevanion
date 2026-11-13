@@ -52,11 +52,12 @@
       Block: 0.05, Evasion: 0.05, 'Incoming Heal%': 5 / 1.5, 'Status Effect Resist%': 2, Endurance: 0,
       // Endurance: chance de levar só metade do dano (sem penetração nos chefes) → 1% ≈ 0,5% menos dano
       'Endurance%': 17,
-      Attack: 0.3 / 3, 'Damage Boost%': 5 / 1.5, 'PvE Damage Boost%': 5 / 1.5, 'Combat Speed%': 7 / 1.5, 'Cooldown%': 15 / 1.5,
+      Attack: 0.3 / 3, 'Critical Hit': 0.9 / 5, 'Critical Damage Boost%': 3 / 1.5, 'Damage Boost%': 5 / 1.5, 'PvE Damage Boost%': 5 / 1.5, 'Combat Speed%': 7 / 1.5, 'Cooldown%': 15 / 1.5,
     },
     healer: {
       Attack: 1 / 3, 'Heal Boost%': 17 / 1.5, 'Healing%': 17 / 1.5, 'Critical Hit': 2 / 5, 'Combat Speed%': 24 / 1.5,
       'Cooldown%': 11 / 1.5, 'Max HP%': 0.03 * (HP_REF / 100), HP: 0.03, 'Defense%': 0.5, 'Damage Tolerance%': 10 / 1.5,
+      'Critical Damage Boost%': 6 / 1.5,
     },
   }
 
@@ -77,7 +78,10 @@
     const out = {}
     if (!tooltip) return out
     for (const sentence of tooltip.split(/(?<=\.)\s+/)) {
-      const k = /\bSpirit's\b/.test(sentence) ? SPIRIT_SHARE : 1
+      // "Reduces the target's Defense by 90%" é debuff no alvo e "restore ... HP by" é cura: não são stat próprio
+      if (/\btarget's\b|\brestores?\b/i.test(sentence)) continue
+      // efeito temporário ("for 20s" ao bloquear, ao acertar...): metade do tempo ativo, só nesta frase
+      const k = (/\bSpirit's\b/.test(sentence) ? SPIRIT_SHARE : 1) * (/for [\d.]+s\b/.test(sentence) ? 0.5 : 1)
       const re = /(?:caster's |additional |the )?((?:Max |PvE |PvP )?[A-Z][A-Za-z-]*(?: [A-Z][A-Za-z-]*)*) by (?:an additional )?([\d.,]+)(%?)/g
       let m
       while ((m = re.exec(sentence))) {
@@ -144,20 +148,19 @@
         const b = effects(d.tooltipMax)
         const steps = Math.max(1, (d.maxLevel || 40) - 1)
         const unit = { ...(STAT_UNIT[role] || {}), ...((CLASS_STAT_UNIT[cls] || {})[role] || {}) }
-        // efeito temporário ("for 20s" ao bloquear, ao acertar...): conta metade do tempo ativo
-        const uptime = /for [\d.]+s\b/.test(d.tooltipMax || '') ? 0.5 : 1
         let w = 0
         let known = false
+        let fixed = false // efeito que serve ao papel mas não cresce com o nível
         const anyRole = Object.keys(b).some((k) => Object.values(STAT_UNIT).some((u) => k in u))
         for (const k of Object.keys(b)) {
           if (!(k in unit)) continue
           const per = a[k] != null ? (b[k] - a[k]) / steps : b[k] / (steps + 1)
           if (per > 0) {
-            w += per * unit[k] * uptime
+            w += per * unit[k]
             known = true
-          }
+          } else if (unit[k] > 0) fixed = true
         }
-        out[name] = known ? { weight: cap(w), how: 'efeito' } : anyRole ? { weight: 0, how: 'efeito de outro papel' } : { weight: round1(role === 'tank' ? 0.5 * sampleWeight(name) : sampleWeight(name)), how: 'amostra' }
+        out[name] = known ? { weight: cap(w), how: 'efeito' } : fixed ? { weight: 0, how: 'efeito fixo' } : anyRole ? { weight: 0, how: 'efeito de outro papel' } : { weight: round1(role === 'tank' ? 0.5 * sampleWeight(name) : sampleWeight(name)), how: 'amostra' }
         continue
       }
       // ativa fora da rotação ou sem dano escalável
@@ -179,8 +182,8 @@
         const pct = (table[name] != null ? table[name] : rest) / 100
         const perLevel = kind === 'active' ? LEVEL_PCT + ACTIVE_BONUS_PCT : LEVEL_PCT
         const w = cap((perLevel * pct) / SKILL_FACTOR / UNIT_PCT)
-        // passiva defensiva continua 0; passiva que sobe stat fica com o maior dos dois
-        if (out[name].how === 'efeito de outro papel') continue
+        // passiva defensiva fora da tabela continua 0; passiva que sobe stat fica com o maior dos dois
+        if ((out[name].how === 'efeito de outro papel' || out[name].how === 'efeito fixo') && table[name] == null) continue
         if (out[name].how === 'efeito' && out[name].weight > w) continue
         out[name] = { weight: w, how: 'participação no dano' }
       }
